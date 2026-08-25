@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Corte JJ VR — VR Box</title>
 <style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: #000; height: 100%; font-family: sans-serif; }
@@ -12,80 +12,90 @@
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; padding: 20px;
   }
   #startOverlay h1 { color: #00ff44; font-size: 24px; margin: 0; }
+  #startOverlay p { font-size: 14px; color: #a0dbae; max-width: 300px; line-height: 1.4; }
   #vrBtn {
-    font-size: 20px; padding: 16px 36px; background: #00ff44; color: #04140a; border: none;
+    font-size: 18px; padding: 16px 32px; background: #00ff44; color: #04140a; border: none;
     border-radius: 8px; font-weight: bold; cursor: pointer; text-transform: uppercase;
   }
   #hud {
-    position: fixed; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.7);
+    position: fixed; top: 12px; left: 12px; z-index: 10; background: rgba(0,0,0,0.7);
     color: #00ff44; padding: 8px 14px; border-radius: 6px; font-size: 14px; display: none;
   }
 </style>
-<!-- Librerías standard directamente desde CDNs de alta velocidad -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/effects/StereoEffect.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/DeviceOrientationControls.js"></script>
 </head>
 <body>
 
 <div id="startOverlay">
   <h1>⛏ CORTE JJ — VR BOX</h1>
-  <p>Toca el botón para iniciar el giroscopio y dividir pantalla.</p>
-  <button id="vrBtn">ENTRAR EN VR</button>
+  <p>Toca el botón, pon el celular en horizontal e introdúcelo en tus VR Box.</p>
+  <button id="vrBtn">INICIAR VR</button>
 </div>
 
 <div id="hud">Esmeraldas: <span id="gems">0</span></div>
 
 <script>
-let camera, scene, renderer, effect, controls;
+let camera, scene, renderer, effect;
 let isVR = false, emeralds = 0;
-const gemRocks = [], flyingGems = [];
+const gemRocks = [];
 let actionHeld = false;
+
+// Variables manuales para giroscopio celular
+let alpha = 0, beta = 0, gamma = 0;
+let hasGyro = false;
+
+window.addEventListener('deviceorientation', function(event) {
+  if (event.alpha !== null) {
+    hasGyro = true;
+    alpha = event.alpha ? THREE.MathUtils.degToRad(event.alpha) : 0;
+    beta = event.beta ? THREE.MathUtils.degToRad(event.beta) : 0;
+    gamma = event.gamma ? THREE.MathUtils.degToRad(event.gamma) : 0;
+  }
+}, true);
 
 function init() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x8fd0ff);
-  scene.fog = new THREE.FogExp2(0x8fd0ff, 0.02);
+  scene.fog = new THREE.FogExp2(0x8fd0ff, 0.015);
 
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
   camera.position.set(0, 1.6, 5);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   document.body.appendChild(renderer.domElement);
 
   effect = new THREE.StereoEffect(renderer);
   effect.setSize(window.innerWidth, window.innerHeight);
 
-  controls = new THREE.DeviceOrientationControls(camera);
-
-  // Luces
-  const light = new THREE.HemisphereLight(0xffffff, 0x448833, 1);
+  // Iluminación
+  const light = new THREE.HemisphereLight(0xffffff, 0x448833, 1.2);
   scene.add(light);
   const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-  sun.position.set(5, 10, 5);
+  sun.position.set(5, 12, 5);
   scene.add(sun);
 
-  // Suelo
-  const groundGeo = new THREE.PlaneGeometry(50, 50);
+  // Suelo verde
+  const groundGeo = new THREE.PlaneGeometry(60, 60);
   const groundMat = new THREE.MeshLambertMaterial({ color: 0x3a9e25 });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  // Casa y árboles
-  createBox(-5, 1.5, -4, 4, 3, 4, 0xe8dfc8); // Casa
-  createBox(-5, 3.8, -4, 4.6, 1.6, 4.6, 0x1a3a7a); // Techo
-  createTree(3, -5); createTree(-8, 2); createTree(4, 4);
+  // Construcciones básicas (Casa y Árboles)
+  createBox(-6, 1.5, -4, 4, 3, 4, 0xe8dfc8);
+  createBox(-6, 3.8, -4, 4.6, 1.6, 4.6, 0x1a3a7a);
+  createTree(3, -5); createTree(-8, 2); createTree(5, 4); createTree(-3, 6);
 
-  // Generar rocas de esmeralda
+  // Rocas de esmeralda
   const spots = [[2,-2],[-3,-3],[4,1],[-4,3],[1,4],[-2,5],[6,-3],[-6,-2]];
   spots.forEach(sp => spawnRock(sp[0], sp[1]));
 
-  // Eventos de interacción (Touch y Control Bluetooth)
-  window.addEventListener('touchstart', () => actionHeld = true);
-  window.addEventListener('touchend', () => actionHeld = false);
+  // Eventos de entrada
+  window.addEventListener('touchstart', () => actionHeld = true, {passive: true});
+  window.addEventListener('touchend', () => actionHeld = false, {passive: true});
   window.addEventListener('mousedown', () => actionHeld = true);
   window.addEventListener('mouseup', () => actionHeld = false);
   window.addEventListener('resize', onWindowResize);
@@ -120,10 +130,10 @@ function onWindowResize() {
   effect.setSize(window.innerWidth, window.innerHeight);
 }
 
-document.getElementById('vrBtn').addEventListener('click', () => {
+document.getElementById('vrBtn').addEventListener('click', function() {
   if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-    DeviceOrientationEvent.requestPermission().then(res => {
-      if (res === 'granted') startVR();
+    DeviceOrientationEvent.requestPermission().then(state => {
+      startVR();
     }).catch(() => startVR());
   } else {
     startVR();
@@ -134,31 +144,42 @@ function startVR() {
   isVR = true;
   document.getElementById('startOverlay').style.display = 'none';
   document.getElementById('hud').style.display = 'block';
-  if (document.documentElement.requestFullscreen) {
-    document.documentElement.requestFullscreen().catch(() => {});
-  }
+
+  // Forzar pantalla completa en celular
+  const el = document.documentElement;
+  if (el.requestFullscreen) el.requestFullscreen().catch(()=>{});
+  else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen().catch(()=>{});
+
   animate();
 }
 
 const raycaster = new THREE.Raycaster();
 const dir = new THREE.Vector3();
+const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+
+function updateCameraRotation() {
+  if (hasGyro) {
+    // Convertir orientación del celular a la cámara 3D
+    euler.set(beta - Math.PI / 2, alpha, -gamma, 'YXZ');
+    camera.quaternion.setFromEuler(euler);
+  }
+}
 
 function animate() {
   requestAnimationFrame(animate);
-
   if (!isVR) return;
 
-  controls.update();
+  updateCameraRotation();
 
-  // Movimiento al mantener presionado
+  // Movimiento al mantener presionado pantalla o botón del control
   if (actionHeld) {
     camera.getWorldDirection(dir);
     dir.y = 0;
     dir.normalize();
-    camera.position.addScaledVector(dir, 0.05);
+    camera.position.addScaledVector(dir, 0.04);
   }
 
-  // Minado al mirar rocas
+  // Detectar mirada hacia rocas verdes para minar
   raycaster.set(camera.position, camera.getWorldDirection(dir));
   const hits = raycaster.intersectObjects(gemRocks);
   if (hits.length > 0 && actionHeld) {
