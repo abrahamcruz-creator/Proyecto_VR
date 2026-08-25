@@ -2,356 +2,181 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Corte JJ VR — Mina de Esmeraldas</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Corte JJ VR — VR Box</title>
 <style>
-  html,body{margin:0;padding:0;overflow:hidden;background:#000;height:100%;font-family:system-ui,Arial,sans-serif;}
-  canvas{display:block;}
-  #panel{
-    position:fixed;top:12px;left:12px;z-index:5;
-    background:rgba(6,14,8,.88);color:#bfe9c8;border-left:3px solid #00ff44;
-    padding:10px 14px;border-radius:6px;font-size:13px;line-height:1.6;max-width:280px;
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #000; height: 100%; font-family: sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #startOverlay {
+    position: fixed; inset: 0; z-index: 99; background: #04140a; color: #eafff0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; padding: 20px;
   }
-  #panel b{color:#00ff44;}
-  #startOverlay{
-    position:fixed;inset:0;z-index:10;background:#04140a;color:#eafff0;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;
+  #startOverlay h1 { color: #00ff44; font-size: 24px; margin: 0; }
+  #vrBtn {
+    font-size: 20px; padding: 16px 36px; background: #00ff44; color: #04140a; border: none;
+    border-radius: 8px; font-weight: bold; cursor: pointer; text-transform: uppercase;
   }
-  #startOverlay h1{color:#00ff44;font-size:22px;margin:0;}
-  #startOverlay p{max-width:420px;font-size:14px;color:#9fcfae;margin:0;line-height:1.5;}
-  #vrBtn{
-    font-size:18px;padding:14px 32px;background:#00ff44;color:#04140a;border:none;
-    border-radius:6px;font-weight:700;cursor:pointer;letter-spacing:1px;
-  }
-  #reticle{
-    position:fixed;top:50%;left:50%;width:14px;height:14px;margin:-7px 0 0 -7px;
-    border:2px solid #fff;border-radius:50%;z-index:4;pointer-events:none;mix-blend-mode:difference;
+  #hud {
+    position: fixed; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.7);
+    color: #00ff44; padding: 8px 14px; border-radius: 6px; font-size: 14px; display: none;
   }
 </style>
+<!-- Librerías standard directamente desde CDNs de alta velocidad -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/effects/StereoEffect.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/DeviceOrientationControls.js"></script>
 </head>
 <body>
 
 <div id="startOverlay">
   <h1>⛏ CORTE JJ — VR BOX</h1>
-  <p>Presiona el botón para activar la pantalla dividida e introduce el celular en las VR Box.</p>
+  <p>Toca el botón para iniciar el giroscopio y dividir pantalla.</p>
   <button id="vrBtn">ENTRAR EN VR</button>
 </div>
 
-<div id="panel">
-  💎 Esmeraldas: <b id="gemCount">0</b><br>
-  <span id="hint">Mira una roca verde y presiona el botón del control</span>
-</div>
-<div id="reticle"></div>
+<div id="hud">Esmeraldas: <span id="gems">0</span></div>
 
-<script type="importmap">
-{ "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-} }
-</script>
+<script>
+let camera, scene, renderer, effect, controls;
+let isVR = false, emeralds = 0;
+const gemRocks = [], flyingGems = [];
+let actionHeld = false;
 
-<script type="module">
-import * as THREE from 'three';
-import { StereoEffect } from 'three/addons/effects/StereoEffect.js';
-import { DeviceOrientationControls } from 'three/addons/controls/DeviceOrientationControls.js';
+function init() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x8fd0ff);
+  scene.fog = new THREE.FogExp2(0x8fd0ff, 0.02);
 
-const renderer = new THREE.WebGLRenderer({ antialias:true });
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-renderer.setSize(innerWidth, innerHeight);
-document.body.appendChild(renderer.domElement);
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera.position.set(0, 1.6, 5);
 
-const effect = new StereoEffect(renderer);
-effect.setSize(innerWidth, innerHeight);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  document.body.appendChild(renderer.domElement);
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x8fd0ff);
-scene.fog = new THREE.FogExp2(0x8fd0ff, 0.018);
+  effect = new THREE.StereoEffect(renderer);
+  effect.setSize(window.innerWidth, window.innerHeight);
 
-const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.05, 100);
-const rig = new THREE.Group();
-rig.add(camera);
-rig.position.set(0, 1.6, 6);
-scene.add(rig);
+  controls = new THREE.DeviceOrientationControls(camera);
 
-const controls = new DeviceOrientationControls(camera);
+  // Luces
+  const light = new THREE.HemisphereLight(0xffffff, 0x448833, 1);
+  scene.add(light);
+  const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+  sun.position.set(5, 10, 5);
+  scene.add(sun);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x448833, 1.1));
-const sun = new THREE.DirectionalLight(0xfff6df, 1.3);
-sun.position.set(6, 12, 4);
-scene.add(sun);
+  // Suelo
+  const groundGeo = new THREE.PlaneGeometry(50, 50);
+  const groundMat = new THREE.MeshLambertMaterial({ color: 0x3a9e25 });
+  const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  scene.add(ground);
 
-function mkTex(fn, s=16){
-  const c=document.createElement('canvas'); c.width=c.height=s;
-  fn(c.getContext('2d'), s);
-  const t=new THREE.CanvasTexture(c);
-  t.magFilter=t.minFilter=THREE.NearestFilter;
-  return t;
+  // Casa y árboles
+  createBox(-5, 1.5, -4, 4, 3, 4, 0xe8dfc8); // Casa
+  createBox(-5, 3.8, -4, 4.6, 1.6, 4.6, 0x1a3a7a); // Techo
+  createTree(3, -5); createTree(-8, 2); createTree(4, 4);
+
+  // Generar rocas de esmeralda
+  const spots = [[2,-2],[-3,-3],[4,1],[-4,3],[1,4],[-2,5],[6,-3],[-6,-2]];
+  spots.forEach(sp => spawnRock(sp[0], sp[1]));
+
+  // Eventos de interacción (Touch y Control Bluetooth)
+  window.addEventListener('touchstart', () => actionHeld = true);
+  window.addEventListener('touchend', () => actionHeld = false);
+  window.addEventListener('mousedown', () => actionHeld = true);
+  window.addEventListener('mouseup', () => actionHeld = false);
+  window.addEventListener('resize', onWindowResize);
 }
-const grassTex = mkTex((ctx,s)=>{
-  ctx.fillStyle='#3a9e25'; ctx.fillRect(0,0,s,s);
-  for(let i=0;i<70;i++){ const v=(Math.random()*30|0)-15;
-    ctx.fillStyle=`rgb(${58+v},${158+v},${37+v})`; ctx.fillRect(Math.random()*s,Math.random()*s,2,2); }
+
+function createBox(x, y, z, w, h, d, color) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
+  mesh.position.set(x, y, z);
+  scene.add(mesh);
+}
+
+function createTree(x, z) {
+  createBox(x, 1.5, z, 0.4, 3, 0.4, 0x8B5A2B);
+  createBox(x, 3.3, z, 2, 2, 2, 0x2d8a1a);
+}
+
+function spawnRock(x, z) {
+  const rock = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.8, 0.8),
+    new THREE.MeshLambertMaterial({ color: 0x00ff44 })
+  );
+  rock.position.set(x, 0.4, z);
+  rock.userData = { hp: 0 };
+  scene.add(rock);
+  gemRocks.push(rock);
+}
+
+function onWindowResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  effect.setSize(window.innerWidth, window.innerHeight);
+}
+
+document.getElementById('vrBtn').addEventListener('click', () => {
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then(res => {
+      if (res === 'granted') startVR();
+    }).catch(() => startVR());
+  } else {
+    startVR();
+  }
 });
-grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping;
-grassTex.repeat.set(24,24);
 
-const gemrockTex = mkTex((ctx,s)=>{
-  ctx.fillStyle='#282828'; ctx.fillRect(0,0,s,s);
-  for(let i=0;i<50;i++){ const v=(Math.random()*24|0)-12;
-    ctx.fillStyle=`rgb(${40+v},${40+v},${40+v})`; ctx.fillRect(Math.random()*s,Math.random()*s,2,2); }
-  ctx.fillStyle='#00aa33';
-  for(let i=0;i<10;i++) ctx.fillRect(Math.random()*s,Math.random()*s,3,2);
-  ctx.fillStyle='#00ff44';
-  for(let i=0;i<5;i++) ctx.fillRect(Math.random()*s,Math.random()*s,2,2);
-});
-
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(48,48),
-  new THREE.MeshLambertMaterial({ map: grassTex })
-);
-ground.rotation.x = -Math.PI/2;
-scene.add(ground);
-
-function box(w,h,d,color,x,y,z){
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshLambertMaterial({color}));
-  m.position.set(x,y,z); scene.add(m); return m;
-}
-box(4,3,4,0xe8dfc8, -6,1.5,-4);
-box(4.6,1.6,4.6,0x1a3a7a, -6,3.8,-4);
-box(0.8,2,0.2,0x3a2000, -6,1,-2);
-
-function tree(x,z){
-  box(0.4,3,0.4,0x9B6C2A, x,1.5,z);
-  box(2,2,2,0x2d8a1a, x,3.4,z);
-}
-tree(3,-6); tree(-9,2); tree(4,4); tree(-2,7);
-
-const gemGeo = new THREE.BoxGeometry(0.9,0.9,0.9);
-const gemRockMat = new THREE.MeshLambertMaterial({ map: gemrockTex });
-const gemRocks = [];
-
-function spawnGemRock(x,z){
-  const m = new THREE.Mesh(gemGeo, gemRockMat);
-  m.position.set(x, 0.45, z);
-  m.userData.mined = false;
-  m.userData.hp = 0;
-  scene.add(m);
-  gemRocks.push(m);
-  const glow = new THREE.PointLight(0x00ff44, 0.6, 2.2);
-  glow.position.copy(m.position);
-  scene.add(glow);
-  m.userData.glow = glow;
-}
-
-const rockSpots = [
-  [2,-2],[-3,-3],[5,1],[-5,3],[1,5],[-2,6],[7,-4],[-7,-2],
-  [3,7],[-8,5],[0,-7],[6,4],[-4,-6],[8,2]
-];
-rockSpots.forEach(([x,z])=>spawnGemRock(x,z));
-
-function buildGemGeo(){
-  const g = new THREE.BufferGeometry();
-  const r=.16,h=.2,r2=.09,top=.24,bot=.12;
-  const v=[r,h,0, 0,h,r, -r,h,0, 0,h,-r, r2,-h*.3,0, 0,-h*.3,r2, -r2,-h*.3,0, 0,-h*.3,-r2, 0,top,0, 0,-bot,0];
-  const idx=[];
-  idx.push(8,0,1,8,1,2,8,2,3,8,3,0);
-  idx.push(0,4,1,1,4,5,1,5,2,2,5,6,2,6,3,3,6,7,3,7,0,0,7,4);
-  idx.push(9,5,4,9,6,5,9,7,6,9,4,7);
-  g.setAttribute('position', new THREE.Float32BufferAttribute(v,3));
-  g.setIndex(idx); g.computeVertexNormals();
-  return g;
-}
-const GEM_GEO = buildGemGeo();
-const GEM_MAT = new THREE.MeshPhongMaterial({ color:0x00dd22, emissive:0x004411, emissiveIntensity:.9, shininess:200 });
-const flyingGems = [];
-
-function buildHand(){
-  const g = new THREE.Group();
-  const skin = new THREE.MeshLambertMaterial({ color:0xffcc99 });
-  const palm = new THREE.Mesh(new THREE.BoxGeometry(.16,.16,.06), skin);
-  g.add(palm);
-  const fingers = [];
-  const fingerDefs = [ [-.06,.1,0], [-.02,.12,0], [.02,.12,0], [.06,.1,0] ];
-  fingerDefs.forEach(([fx,fy])=>{
-    const pivot = new THREE.Group();
-    pivot.position.set(fx, fy*0-.02, 0.02);
-    const seg = new THREE.Mesh(new THREE.BoxGeometry(.035,.09,.035), skin);
-    seg.position.set(0,.045,0);
-    pivot.add(seg);
-    g.add(pivot);
-    fingers.push(pivot);
-  });
-  const thumbPivot = new THREE.Group();
-  thumbPivot.position.set(-.09,-.02,.02);
-  const thumbSeg = new THREE.Mesh(new THREE.BoxGeometry(.05,.07,.035), skin);
-  thumbSeg.position.set(0,.035,0);
-  thumbPivot.add(thumbSeg);
-  g.add(thumbPivot);
-
-  g.userData.fingers = fingers;
-  g.userData.thumb = thumbPivot;
-  g.userData.curl = 0;
-  return g;
-}
-const hand = buildHand();
-hand.position.set(0.32, -0.32, -0.55);
-hand.rotation.set(0.3, -0.4, 0.15);
-camera.add(hand);
-
-function setHandCurl(t){
-  hand.userData.curl = t;
-  hand.userData.fingers.forEach(f=> f.rotation.x = t * 1.35);
-  hand.userData.thumb.rotation.z = t * 0.9;
-}
-
-let emeraldCount = 0;
-const gemCountEl = document.getElementById('gemCount');
-const hintEl = document.getElementById('hint');
-
-function collectGem(worldPos){
-  const g = new THREE.Group();
-  g.add(new THREE.Mesh(GEM_GEO, GEM_MAT));
-  g.position.copy(worldPos);
-  scene.add(g);
-  flyingGems.push(g);
+function startVR() {
+  isVR = true;
+  document.getElementById('startOverlay').style.display = 'none';
+  document.getElementById('hud').style.display = 'block';
+  if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+  animate();
 }
 
 const raycaster = new THREE.Raycaster();
-raycaster.far = 4.2;
-const fwd = new THREE.Vector3();
-const origin = new THREE.Vector3();
+const dir = new THREE.Vector3();
 
-function currentLookTarget(){
-  camera.getWorldDirection(fwd);
-  camera.getWorldPosition(origin);
-  raycaster.set(origin, fwd);
+function animate() {
+  requestAnimationFrame(animate);
+
+  if (!isVR) return;
+
+  controls.update();
+
+  // Movimiento al mantener presionado
+  if (actionHeld) {
+    camera.getWorldDirection(dir);
+    dir.y = 0;
+    dir.normalize();
+    camera.position.addScaledVector(dir, 0.05);
+  }
+
+  // Minado al mirar rocas
+  raycaster.set(camera.position, camera.getWorldDirection(dir));
   const hits = raycaster.intersectObjects(gemRocks);
-  return hits.length ? hits[0].object : null;
-}
-
-let miningRock = null;
-const MINE_TIME = 1.4;
-
-function tryMine(dt){
-  const target = currentLookTarget();
-  if(target){
-    hintEl.textContent = 'Presiona el botón para minar';
-    if(actionHeld){
-      miningRock = target;
-      target.userData.hp += dt / MINE_TIME;
-      target.scale.setScalar(1 - target.userData.hp*0.25);
-      setHandCurl(Math.min(1, target.userData.hp*1.4));
-      if(target.userData.hp >= 1){
-        collectGem(target.position.clone());
-        target.userData.glow.visible = false;
-        scene.remove(target);
-        const i = gemRocks.indexOf(target);
-        if(i!==-1) gemRocks.splice(i,1);
-        miningRock = null;
-        setHandCurl(0);
-      }
-    }
-  } else {
-    hintEl.textContent = 'Mira una roca verde para minar';
-    if(miningRock){ miningRock.userData.hp = 0; miningRock.scale.setScalar(1); miningRock = null; }
-    setHandCurl(actionHeld ? 0.5 : 0);
-  }
-}
-
-function updateFlyingGems(dt){
-  const handWorld = new THREE.Vector3();
-  hand.getWorldPosition(handWorld);
-  for(let i=flyingGems.length-1;i>=0;i--){
-    const g = flyingGems[i];
-    g.rotation.y += dt*6;
-    g.position.lerp(handWorld, dt*4);
-    if(g.position.distanceTo(handWorld) < 0.15){
-      scene.remove(g);
-      flyingGems.splice(i,1);
-      emeraldCount++;
-      gemCountEl.textContent = emeraldCount;
+  if (hits.length > 0 && actionHeld) {
+    const target = hits[0].object;
+    target.userData.hp += 0.02;
+    target.scale.setScalar(1 - target.userData.hp * 0.3);
+    if (target.userData.hp >= 1) {
+      scene.remove(target);
+      gemRocks.splice(gemRocks.indexOf(target), 1);
+      emeralds++;
+      document.getElementById('gems').textContent = emeralds;
     }
   }
+
+  effect.render(scene, camera);
 }
 
-let actionHeld = false;
-function pollGamepad(){
-  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-  let padPressed = false;
-  for(const gp of pads){
-    if(gp && gp.buttons.some(b => b.pressed || b.value > 0.5)) padPressed = true;
-  }
-  if(padPressed) actionHeld = true;
-}
-
-window.addEventListener('touchstart',()=> actionHeld = true, {passive:true});
-window.addEventListener('touchend',  ()=> actionHeld = false, {passive:true});
-window.addEventListener('mousedown', ()=> actionHeld = true);
-window.addEventListener('mouseup',   ()=> actionHeld = false);
-
-const moveDir = new THREE.Vector3();
-const flatFwd = new THREE.Vector3();
-
-function updateMovement(dt){
-  const speed = 2.2;
-  camera.getWorldDirection(flatFwd); flatFwd.y = 0; flatFwd.normalize();
-  moveDir.set(0,0,0);
-
-  if(actionHeld && !currentLookTarget()){
-    moveDir.addScaledVector(flatFwd, 1);
-  }
-
-  if(moveDir.lengthSq() > 0){
-    moveDir.normalize();
-    rig.position.addScaledVector(moveDir, speed*dt);
-  }
-  rig.position.x = Math.max(-23, Math.min(23, rig.position.x));
-  rig.position.z = Math.max(-23, Math.min(23, rig.position.z));
-}
-
-const startOverlay = document.getElementById('startOverlay');
-const vrBtn = document.getElementById('vrBtn');
-let isVRActive = false;
-
-vrBtn.addEventListener('click', async () => {
-  isVRActive = true;
-  
-  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-    try { await DeviceOrientationEvent.requestPermission(); } catch(e){}
-  }
-  
-  controls.connect();
-
-  if (document.documentElement.requestFullscreen) {
-    document.documentElement.requestFullscreen().catch(()=>{});
-  }
-
-  startOverlay.style.display = 'none';
-});
-
-const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.05);
-  pollGamepad();
-  
-  if (isVRActive) {
-    controls.update();
-    updateMovement(dt);
-    tryMine(dt);
-    updateFlyingGems(dt);
-    gemRocks.forEach(r => { r.rotation.y += dt*0.15; });
-    effect.render(scene, camera);
-  } else {
-    renderer.render(scene, camera);
-  }
-});
-
-window.addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  effect.setSize(innerWidth, innerHeight);
-});
+init();
 </script>
 </body>
 </html>
