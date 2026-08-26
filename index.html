@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Corte JJ VR — Survival</title>
+<title>Corte JJ VR — Perspectiva Correcta</title>
 <style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: #000; height: 100%; font-family: sans-serif; }
   canvas { display: block; width: 100vw; height: 100vh; }
@@ -11,16 +11,15 @@
     position: fixed; inset: 0; z-index: 99; background: #051408; color: #eafff0;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; padding: 20px;
   }
-  #startOverlay h1 { color: #00ff44; font-size: 26px; margin: 0; }
+  #startOverlay h1 { color: #00ff44; font-size: 24px; margin: 0; }
   #vrBtn {
     font-size: 18px; padding: 16px 32px; background: #00ff44; color: #051408; border: none;
     border-radius: 8px; font-weight: bold; cursor: pointer; text-transform: uppercase;
   }
   #hud {
     position: fixed; top: 12px; left: 12px; z-index: 10; background: rgba(0,0,0,0.7);
-    color: #00ff44; padding: 10px 16px; border-radius: 8px; font-size: 14px; display: none; font-weight: bold;
+    color: #00ff44; padding: 8px 14px; border-radius: 6px; font-size: 14px; display: none; font-weight: bold;
   }
-  .danger { color: #ff3333; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/effects/StereoEffect.js"></script>
@@ -28,25 +27,21 @@
 <body>
 
 <div id="startOverlay">
-  <h1>⛏ CORTE JJ — SURVIVAL VR</h1>
-  <p>Mina esmeraldas, defiéndete de los enemigos y explora el mundo.</p>
+  <h1>⛏ CORTE JJ — VR BOX</h1>
+  <p>Perspectiva y campo visual ajustados para VR Box.</p>
   <button id="vrBtn">ENTRAR AL MUNDO VR</button>
 </div>
 
-<div id="hud">
-  💎 Esmeraldas: <span id="gems">0</span> | ❤️ Vida: <span id="hp">100</span>
-</div>
+<div id="hud">💎 Esmeraldas: <span id="gems">0</span> | ❤️ Vida: <span id="hp">100</span></div>
 
 <script>
 let camera, scene, renderer, effect;
 let isVR = false, emeralds = 0, playerHp = 100;
 const gemRocks = [], enemies = [];
 let actionHeld = false;
+let pickaxeGroup;
 
-// Herramienta (Pico y Mano)
-let pickaxeGroup, swingAngle = 0;
-
-// Giroscopio Celular
+// Giroscopio
 let alpha = 0, beta = 0, gamma = 0, hasGyro = false;
 
 window.addEventListener('deviceorientation', (e) => {
@@ -61,10 +56,11 @@ window.addEventListener('deviceorientation', (e) => {
 function init() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x7ec0ee);
-  scene.fog = new THREE.FogExp2(0x7ec0ee, 0.012);
+  scene.fog = new THREE.FogExp2(0x7ec0ee, 0.008); // Neblina más ligera para ver a lo lejos
 
-  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
-  camera.position.set(0, 1.6, 5);
+  // FOV ampliado a 95° para alejamiento visual realista
+  camera = new THREE.PerspectiveCamera(95, window.innerWidth / window.innerHeight, 0.1, 150);
+  camera.position.set(0, 1.8, 8); // Jugador más alto y alejado del origen
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -72,24 +68,32 @@ function init() {
   document.body.appendChild(renderer.domElement);
 
   effect = new THREE.StereoEffect(renderer);
+  effect.eyeSeparation = 0.04; // Separación óptica adaptada para smartphones y VR Box
   effect.setSize(window.innerWidth, window.innerHeight);
 
-  // Iluminación cálida
-  const light = new THREE.HemisphereLight(0xffffff, 0x335522, 1.2);
+  // Luces
+  const light = new THREE.HemisphereLight(0xffffff, 0x335522, 1.3);
   scene.add(light);
   const sun = new THREE.DirectionalLight(0xfffaed, 1);
-  sun.position.set(20, 40, 20);
+  sun.position.set(30, 50, 30);
   scene.add(sun);
 
-  // Crear Mundo
   buildEnvironment();
   createPickaxe();
 
-  // Spawns
-  for(let i=0; i<12; i++) spawnRock((Math.random()-0.5)*30, (Math.random()-0.5)*30);
-  for(let i=0; i<4; i++) spawnEnemy((Math.random()-0.5)*40, (Math.random()-0.5)*40);
+  // Distribuir elementos más lejos del jugador
+  for(let i=0; i<15; i++) {
+    const r = 10 + Math.random()*25;
+    const a = Math.random()*Math.PI*2;
+    spawnRock(Math.cos(a)*r, Math.sin(a)*r);
+  }
 
-  // Controles
+  for(let i=0; i<3; i++) {
+    const r = 15 + Math.random()*20;
+    const a = Math.random()*Math.PI*2;
+    spawnEnemy(Math.cos(a)*r, Math.sin(a)*r);
+  }
+
   window.addEventListener('touchstart', () => actionHeld = true, {passive: true});
   window.addEventListener('touchend', () => actionHeld = false, {passive: true});
   window.addEventListener('mousedown', () => actionHeld = true);
@@ -98,83 +102,77 @@ function init() {
 }
 
 function buildEnvironment() {
-  // Suelo
+  // Suelo grande
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(100, 100),
+    new THREE.PlaneGeometry(200, 200),
     new THREE.MeshLambertMaterial({ color: 0x4e8b28 })
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  // Montañas lejanas
-  for(let i=0; i<16; i++) {
-    const ang = (i / 16) * Math.PI * 2;
-    const dist = 40 + Math.random()*5;
+  // Montañas gigantes de fondo
+  for(let i=0; i<20; i++) {
+    const ang = (i / 20) * Math.PI * 2;
+    const dist = 70 + Math.random()*10;
     const m = new THREE.Mesh(
-      new THREE.ConeGeometry(8 + Math.random()*4, 15 + Math.random()*10, 5),
+      new THREE.ConeGeometry(12 + Math.random()*6, 25 + Math.random()*15, 6),
       new THREE.MeshLambertMaterial({ color: 0x2e5016 })
     );
-    m.position.set(Math.cos(ang)*dist, 5, Math.sin(ang)*dist);
+    m.position.set(Math.cos(ang)*dist, 10, Math.sin(ang)*dist);
     scene.add(m);
   }
 
-  // Árboles y Flores
-  for(let i=0; i<30; i++) {
-    createTree((Math.random()-0.5)*60, (Math.random()-0.5)*60);
+  // Bosque de árboles alejados
+  for(let i=0; i<45; i++) {
+    const r = 8 + Math.random()*45;
+    const a = Math.random()*Math.PI*2;
+    createTree(Math.cos(a)*r, Math.sin(a)*r);
   }
 }
 
 function createTree(x, z) {
-  if (Math.abs(x)<3 && Math.abs(z)<3) return;
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 3), new THREE.MeshLambertMaterial({color: 0x5a3d28}));
-  trunk.position.set(x, 1.5, z);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 3.5), new THREE.MeshLambertMaterial({color: 0x5a3d28}));
+  trunk.position.set(x, 1.75, z);
   scene.add(trunk);
 
-  const leaves = new THREE.Mesh(new THREE.DodecahedronGeometry(1.8), new THREE.MeshLambertMaterial({color: 0x1e6019}));
-  leaves.position.set(x, 3.5, z);
+  const leaves = new THREE.Mesh(new THREE.DodecahedronGeometry(2), new THREE.MeshLambertMaterial({color: 0x1e6019}));
+  leaves.position.set(x, 4.2, z);
   scene.add(leaves);
 }
 
 function createPickaxe() {
   pickaxeGroup = new THREE.Group();
 
-  // Mano
-  const hand = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.3), new THREE.MeshLambertMaterial({color: 0xe0a96d}));
-  hand.position.set(0.3, -0.2, -0.4);
+  // Mano y Herramienta posicionada más abajo y afuera
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.5, 0.04), new THREE.MeshLambertMaterial({color: 0x5a3d28}));
+  handle.position.set(0.35, -0.3, -0.6);
+  handle.rotation.x = Math.PI / 3;
 
-  // Palo
-  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.6, 0.04), new THREE.MeshLambertMaterial({color: 0x5a3d28}));
-  handle.position.set(0.3, -0.1, -0.5);
-  handle.rotation.x = Math.PI / 4;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.08), new THREE.MeshLambertMaterial({color: 0xcccccc}));
+  head.position.set(0.35, -0.15, -0.75);
 
-  // Cabeza de Hierro
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, 0.08), new THREE.MeshLambertMaterial({color: 0xaaa8a8}));
-  head.position.set(0.3, 0.1, -0.65);
-
-  pickaxeGroup.add(hand, handle, head);
+  pickaxeGroup.add(handle, head);
   camera.add(pickaxeGroup);
   scene.add(camera);
 }
 
 function spawnRock(x, z) {
   const rock = new THREE.Mesh(
-    new THREE.DodecahedronGeometry(0.6),
+    new THREE.DodecahedronGeometry(0.5),
     new THREE.MeshLambertMaterial({ color: 0x00ff55 })
   );
-  rock.position.set(x, 0.4, z);
+  rock.position.set(x, 0.5, z);
   rock.userData = { hp: 0 };
   scene.add(rock);
   gemRocks.push(rock);
 }
 
 function spawnEnemy(x, z) {
-  if (Math.abs(x)<5 && Math.abs(z)<5) x += 10;
   const enemyGroup = new THREE.Group();
-
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.6, 0.8), new THREE.MeshLambertMaterial({color: 0x881111}));
   body.position.y = 0.8;
 
-  const eye1 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.1), new THREE.MeshBasicMaterial({color: 0xff0000}));
+  const eye1 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.1), new THREE.MeshBasicMaterial({color: 0xffff00}));
   eye1.position.set(-0.2, 1.2, -0.41);
   const eye2 = eye1.clone();
   eye2.position.x = 0.2;
@@ -214,41 +212,37 @@ function startVR() {
 const raycaster = new THREE.Raycaster();
 const dir = new THREE.Vector3();
 const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+let swingAngle = 0;
 
 function animate() {
   requestAnimationFrame(animate);
   if (!isVR) return;
 
-  // Giroscopio
   if (hasGyro) {
     euler.set(beta - Math.PI / 2, alpha, -gamma, 'YXZ');
     camera.quaternion.setFromEuler(euler);
   }
 
-  // Movimiento
+  // Avanzar al mantener pulsada la pantalla
   if (actionHeld) {
     camera.getWorldDirection(dir);
     dir.y = 0;
     dir.normalize();
-    camera.position.addScaledVector(dir, 0.05);
+    camera.position.addScaledVector(dir, 0.06);
 
-    // Animación de picar con la mano
-    swingAngle += 0.2;
-    pickaxeGroup.position.z = Math.sin(swingAngle) * 0.1;
-    pickaxeGroup.rotation.x = Math.sin(swingAngle) * 0.3;
+    swingAngle += 0.25;
+    pickaxeGroup.rotation.x = Math.sin(swingAngle) * 0.4;
   } else {
-    pickaxeGroup.position.set(0,0,0);
     pickaxeGroup.rotation.set(0,0,0);
   }
 
-  // Raycast de interacción (Mirada)
   raycaster.set(camera.position, camera.getWorldDirection(dir));
 
-  // Minar Esmeraldas
+  // Minado de Esmeraldas
   const hitGems = raycaster.intersectObjects(gemRocks);
   if (hitGems.length > 0 && actionHeld) {
     const target = hitGems[0].object;
-    target.userData.hp += 0.03;
+    target.userData.hp += 0.04;
     target.scale.setScalar(1 - target.userData.hp * 0.3);
     if (target.userData.hp >= 1) {
       scene.remove(target);
@@ -258,30 +252,26 @@ function animate() {
     }
   }
 
-  // Atacar Enemigos y Lógica de IA
+  // Comportamiento de Enemigos
   enemies.forEach((enemy, index) => {
-    // Mover enemigo hacia el jugador
     const ePos = enemy.position;
     const distance = ePos.distanceTo(camera.position);
 
-    if (distance > 1.2) {
+    if (distance > 1.5) {
       const moveDir = new THREE.Vector3().subVectors(camera.position, ePos).normalize();
-      ePos.x += moveDir.x * 0.015;
-      ePos.z += moveDir.z * 0.015;
+      ePos.x += moveDir.x * 0.02;
+      ePos.z += moveDir.z * 0.02;
       enemy.lookAt(camera.position.x, enemy.position.y, camera.position.z);
     } else {
-      // Hacer daño al jugador
-      playerHp -= 0.1;
+      playerHp -= 0.15;
       document.getElementById('hp').textContent = Math.max(0, Math.floor(playerHp));
-      if (playerHp <= 0) alert("¡Has caído en combate! Reinicia la página.");
     }
 
-    // Atacar al enemigo mirándolo
     const hitEnemies = raycaster.intersectObjects(enemy.children);
     if (hitEnemies.length > 0 && actionHeld) {
-      enemy.userData.hp -= 0.05;
-      enemy.position.x -= dir.x * 0.1; // Empujón
-      enemy.position.z -= dir.z * 0.1;
+      enemy.userData.hp -= 0.06;
+      enemy.position.x -= dir.x * 0.2;
+      enemy.position.z -= dir.z * 0.2;
       if (enemy.userData.hp <= 0) {
         scene.remove(enemy);
         enemies.splice(index, 1);
