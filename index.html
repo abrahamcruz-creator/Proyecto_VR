@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Corte JJ VR — Ultra Edition v3</title>
+<title>Corte JJ VR — Ultra Edition v4</title>
 <style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: #000; height: 100%; width: 100%; font-family: 'Segoe UI', sans-serif; }
   canvas { display: block; width: 100vw; height: 100vh; }
@@ -44,10 +44,13 @@
 <body>
 
 <div id="startOverlay">
-  <h1>⚔️ CORTE JJ VR (ULTRA v3)</h1>
-  <p>1. Conecta tu mando Bluetooth.<br>2. Pon el celular en HORIZONTAL y colócatelo en el VR Box.<br>3. El touchpad/joystick del mando mueve al personaje; el botón central o toque en pantalla ataca.<br><br><b>¿Tu mando no mueve al personaje?</b> Toca cualquier botón del mando primero — abajo aparecerá el nombre de la tecla que detecta, para que sepamos exactamente cómo responde tu modelo.</p>
-  <button id="vrBtn">INICIAR VR</button>
+  <h1>⚔️ CORTE JJ VR (ULTRA v4)</h1>
+  <p>1. Conecta tu mando Bluetooth.<br>2. El touchpad/joystick del mando mueve al personaje; el botón central o toque en pantalla ataca.<br><br><b>¿Tu mando no mueve al personaje?</b> Toca cualquier botón del mando primero — abajo aparecerá el nombre de la tecla que detecta.</p>
+  <button id="normalBtn" style="background:linear-gradient(45deg,#55aaff,#0066cc)">MODO NORMAL (probar sin gafas)</button>
+  <button id="vrBtn">MODO VR (pantalla dividida, con gafas)</button>
 </div>
+
+<button id="modeToggle" style="position:fixed;bottom:16px;right:16px;z-index:11;display:none;padding:8px 14px;border-radius:14px;border:none;background:rgba(0,0,0,0.6);color:#fff;font-size:12px;">Cambiar a VR</button>
 
 <div id="hud">👹 Monstruos: <span id="score">0</span> | ❤️ Vida: <span id="hp">100</span></div>
 <div id="waveHud">🌊 Oleada: <span id="wave">1</span></div>
@@ -57,8 +60,10 @@
 <script>
 let camera, scene, renderer, effect, controls;
 let isVR = false, score = 0, playerHp = 100, wave = 1;
+let stereoMode = true; // true = pantalla dividida (gafas), false = pantalla normal (probar sin gafas)
 const enemies = [];
-let leftHand, rightHand, weapon, weaponLight, playerBody, legL, legR, armL, armR;
+let leftHand, rightHand, weapon, weaponLight, playerBody, playerRig, legL, legR, armL, armR;
+const slashTrail = [];
 let isAttacking = false, attackTime = 0;
 let globalTime = 0;
 let autoMoveForward = false;
@@ -66,6 +71,9 @@ let walkCycle = 0;
 let sunLight, hemiLight, ambientLight, moonMesh;
 const fireflies = [];
 const WALK_SPEED = 0.07;
+const NORMAL_FOV = 60;
+const VR_FOV = 95; // los lentes del VR Box necesitan más campo de visión para verse "llenos"
+let lensTarget, lensScene, lensCamera, lensMaterial;
 
 // La mayoría de los "clickers" VR Box baratos NO se registran como gamepad con joystick analógico:
 // se comportan como teclado/mouse Bluetooth (el touchpad manda flechas, y el botón central manda click/Enter).
@@ -100,7 +108,7 @@ function init() {
   scene.background = new THREE.Color(0x5c94cd);
   scene.fog = new THREE.FogExp2(0x81abdc, 0.008);
 
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 220);
+  camera = new THREE.PerspectiveCamera(NORMAL_FOV, window.innerWidth / window.innerHeight, 0.1, 220);
   camera.position.set(0, 1.7, 0);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -113,7 +121,9 @@ function init() {
   document.body.appendChild(renderer.domElement);
 
   effect = new THREE.StereoEffect(renderer);
-  effect.eyeSeparation = 0.04;
+  effect.eyeSeparation = 0.064; // separación ocular promedio real, da más sensación de profundidad
+
+  setupLensCorrection();
 
   controls = new THREE.DeviceOrientationControls(camera);
 
@@ -122,6 +132,14 @@ function init() {
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.width = 2048;
   sunLight.shadow.mapSize.height = 2048;
+  sunLight.shadow.camera.left = -35;
+  sunLight.shadow.camera.right = 35;
+  sunLight.shadow.camera.top = 35;
+  sunLight.shadow.camera.bottom = -35;
+  sunLight.shadow.camera.far = 200;
+  sunLight.shadow.camera.updateProjectionMatrix();
+  sunLight.target = new THREE.Object3D();
+  scene.add(sunLight.target);
   scene.add(sunLight);
 
   ambientLight = new THREE.AmbientLight(0x76a3d9, 0.5);
@@ -139,6 +157,8 @@ function init() {
   buildModernWorld();
   buildFutureCity();
   buildFireflies();
+  buildClouds();
+  buildStars();
   createPlayerBodyModern();
   createHandsAndWeaponModern();
 
@@ -154,10 +174,61 @@ function init() {
 function updateLayout() {
   const width = window.innerWidth;
   const height = window.innerHeight;
+  camera.fov = stereoMode ? VR_FOV : NORMAL_FOV;
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   renderer.setSize(width, height);
   effect.setSize(width, height);
+  if (lensTarget) lensTarget.setSize(width, height);
+}
+
+// Los lentes convexos del VR Box "abomban" la imagen (distorsión de barril). Si mandamos la imagen
+// normal, se ve deformada y con doble visión al mirar por ellos. Esta pasada aplica el efecto
+// contrario (pincushion) más una leve aberración cromática, para que a través del lente se vea recta.
+function setupLensCorrection() {
+  lensTarget = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
+
+  lensScene = new THREE.Scene();
+  lensCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+  lensMaterial = new THREE.ShaderMaterial({
+    uniforms: { tDiffuse: { value: lensTarget.texture }, strength: { value: 0.24 } },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+    `,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      uniform float strength;
+      varying vec2 vUv;
+      void main() {
+        float isRight = step(0.5, vUv.x);
+        vec2 center = vec2(isRight > 0.5 ? 0.75 : 0.25, 0.5);
+        vec2 d = vUv - center;
+        vec2 dn = vec2(d.x / 0.25, d.y / 0.5);
+        float r2 = dot(dn, dn);
+        float factor = 1.0 + strength * r2 + (strength * 0.35) * r2 * r2;
+        vec2 warped = center + d * factor;
+
+        float ca = 0.0022 * r2;
+        vec2 caOff = normalize(d + 0.0001) * ca;
+        float minX = isRight > 0.5 ? 0.5 : 0.0;
+        float maxX = isRight > 0.5 ? 1.0 : 0.5;
+
+        if (warped.x < minX || warped.x > maxX || warped.y < 0.0 || warped.y > 1.0) {
+          gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        } else {
+          float r = texture2D(tDiffuse, warped + caOff).r;
+          float g = texture2D(tDiffuse, warped).g;
+          float b = texture2D(tDiffuse, warped - caOff).b;
+          gl_FragColor = vec4(r, g, b, 1.0);
+        }
+      }
+    `
+  });
+
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), lensMaterial);
+  lensScene.add(quad);
 }
 
 // ---------- MUNDO ----------
@@ -245,6 +316,7 @@ function buildFireflies() {
   }
 }
 
+const treeLeaves = [];
 function createTree(x, z) {
   const group = new THREE.Group();
   const trunk = new THREE.Mesh(
@@ -260,6 +332,8 @@ function createTree(x, z) {
   );
   leaves.position.y = 4.2;
   leaves.castShadow = true;
+  leaves.userData.phase = Math.random() * 10;
+  treeLeaves.push(leaves);
 
   group.add(trunk, leaves);
   group.position.set(x, 0, z);
@@ -320,11 +394,80 @@ function buildVillage() {
   spots.forEach(([x, z], i) => {
     const scaleMult = 0.85 + Math.random() * 0.5;
     createHouse(x, z, scaleMult, wallPalette[i % wallPalette.length], roofPalette[i % roofPalette.length]);
+    if (i % 3 === 0) createLampPost(x + 4, z + 3);
   });
+}
+
+const lampLights = [];
+function createLampPost(x, z) {
+  const group = new THREE.Group();
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, metalness: 0.6, roughness: 0.5 });
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 2.6, 6), poleMat);
+  pole.position.y = 1.3;
+  pole.castShadow = true;
+
+  const lampMat = new THREE.MeshStandardMaterial({ color: 0xffdd88, emissive: 0xffcc55, emissiveIntensity: 0.2 });
+  const lampHead = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), lampMat);
+  lampHead.position.y = 2.65;
+
+  const light = new THREE.PointLight(0xffcc66, 0, 4);
+  light.position.y = 2.65;
+
+  group.add(pole, lampHead, light);
+  group.position.set(x, 0, z);
+  scene.add(group);
+  lampLights.push({ light, mat: lampMat });
+}
+
+// Nubes bajas de estilo low-poly que se desplazan lentamente por el cielo
+const clouds = [];
+function buildClouds() {
+  const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.9 });
+  for (let i = 0; i < 14; i++) {
+    const group = new THREE.Group();
+    const puffs = 3 + Math.floor(Math.random() * 3);
+    for (let p = 0; p < puffs; p++) {
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(1.5 + Math.random(), 7, 7), cloudMat);
+      puff.position.set(p * 1.8 - puffs, Math.random() * 0.5, Math.random() * 1.2);
+      group.add(puff);
+    }
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 40 + Math.random() * 60;
+    group.position.set(Math.cos(angle) * dist, 24 + Math.random() * 10, Math.sin(angle) * dist);
+    group.userData = { speed: 0.01 + Math.random() * 0.01 };
+    scene.add(group);
+    clouds.push(group);
+  }
+}
+
+// Estrellas que aparecen de noche
+let starField;
+function buildStars() {
+  const starGeo = new THREE.BufferGeometry();
+  const count = 400;
+  const positions = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const r = 150;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.random() * Math.PI * 0.5;
+    positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = 20 + r * Math.cos(phi) * 0.6;
+    positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.2, transparent: true, opacity: 0 });
+  starField = new THREE.Points(starGeo, starMat);
+  scene.add(starField);
 }
 
 // ---------- PERSONAJE ----------
 function createPlayerBodyModern() {
+  // El cuerpo va en su propio grupo (playerRig), NO como hijo de la cámara.
+  // Así, cuando inclinas la cabeza para mirar hacia abajo, el cuerpo no gira raro contigo:
+  // se queda de pie, como un cuerpo real, y puedes ver tu silueta y su sombra en el suelo.
+  playerRig = new THREE.Group();
+  scene.add(playerRig);
+
   playerBody = new THREE.Group();
 
   const armorMat = new THREE.MeshStandardMaterial({ color: 0x112233, metalness: 0.8, roughness: 0.2 });
@@ -332,6 +475,7 @@ function createPlayerBodyModern() {
 
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.3), armorMat);
   torso.position.set(0, -0.65, -0.1);
+  torso.castShadow = true;
 
   const core = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.32, 8), glowMat);
   core.rotation.x = Math.PI / 2;
@@ -339,12 +483,14 @@ function createPlayerBodyModern() {
 
   const shoulderLeft = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.25), armorMat);
   shoulderLeft.position.set(-0.32, -0.4, -0.1);
+  shoulderLeft.castShadow = true;
   const shoulderRight = shoulderLeft.clone();
   shoulderRight.position.x = 0.32;
 
   // Piernas visibles al mirar hacia abajo, para que el cuerpo se sienta completo
   legL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.9, 0.2), armorMat);
   legL.position.set(-0.13, -1.55, -0.1);
+  legL.castShadow = true;
   legR = legL.clone();
   legR.position.x = 0.13;
 
@@ -352,6 +498,7 @@ function createPlayerBodyModern() {
   const bootMat = new THREE.MeshStandardMaterial({ color: 0x0a0f16, metalness: 0.6, roughness: 0.4 });
   const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.18, 0.32), bootMat);
   bootL.position.set(0, -0.5, 0.05);
+  bootL.castShadow = true;
   legL.add(bootL);
   const bootR = bootL.clone();
   legR.add(bootR);
@@ -361,12 +508,22 @@ function createPlayerBodyModern() {
   armL = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.55, 6), armMat);
   armL.position.set(-0.3, -0.55, -0.28);
   armL.rotation.set(0.5, 0, 0.15);
+  armL.castShadow = true;
   armR = armL.clone();
   armR.position.x = 0.3;
   armR.rotation.z = -0.15;
 
   playerBody.add(torso, core, shoulderLeft, shoulderRight, legL, legR, armL, armR);
-  camera.add(playerBody);
+  playerRig.add(playerBody);
+}
+
+// Mantiene el cuerpo pegado a donde estás parado, mirando hacia donde miras horizontalmente,
+// pero SIN heredar la inclinación de la cabeza (eso es lo que antes hacía que se viera raro).
+function syncPlayerRig() {
+  playerRig.position.copy(camera.position);
+  const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+  euler.setFromQuaternion(camera.quaternion);
+  playerRig.rotation.y = euler.y;
 }
 
 function createHandsAndWeaponModern() {
@@ -380,26 +537,82 @@ function createHandsAndWeaponModern() {
   rightHand.position.set(0.28, -0.25, -0.45);
   rightHand.userData.rest = rightHand.position.clone();
 
-  const hiltMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.9 });
-  const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.25), hiltMat);
-
-  const bladeMat = new THREE.MeshBasicMaterial({ color: 0x55ff88 });
-  weapon = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.85, 0.02), bladeMat);
-  weapon.position.set(0, 0.45, 0);
-
-  weaponLight = new THREE.PointLight(0x55ff88, 0.8, 3);
-  weaponLight.position.set(0, 0.6, 0);
-
   const weaponGroup = new THREE.Group();
-  weaponGroup.add(hilt, weapon, weaponLight);
+
+  // Pomo
+  const metalMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.9, roughness: 0.25 });
+  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), metalMat);
+  pommel.position.set(0, -0.03, 0);
+
+  // Empuñadura
+  const gripMat = new THREE.MeshStandardMaterial({ color: 0x2b1a10, roughness: 0.8 });
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.16, 8), gripMat);
+  grip.position.set(0, 0.06, 0);
+
+  // Guarda (cruceta)
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 0.04), metalMat);
+  guard.position.set(0, 0.14, 0);
+
+  // Hoja tallada con punta, en vez de una caja plana
+  const bladeShape = new THREE.Shape();
+  bladeShape.moveTo(-0.045, 0);
+  bladeShape.lineTo(-0.03, 0.6);
+  bladeShape.lineTo(0, 0.75);
+  bladeShape.lineTo(0.03, 0.6);
+  bladeShape.lineTo(0.045, 0);
+  bladeShape.lineTo(-0.045, 0);
+  const bladeGeo = new THREE.ExtrudeGeometry(bladeShape, { depth: 0.012, bevelEnabled: false });
+  bladeGeo.translate(0, 0.16, -0.006);
+
+  const bladeMat = new THREE.MeshStandardMaterial({ color: 0x9dffc0, emissive: 0x55ff88, emissiveIntensity: 1.4, metalness: 0.3, roughness: 0.2 });
+  weapon = new THREE.Mesh(bladeGeo, bladeMat);
+
+  // Núcleo interno más brillante, da sensación de espada de energía
+  const coreGeo = new THREE.BoxGeometry(0.012, 0.65, 0.02);
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0xdfffe8 });
+  const bladeCore = new THREE.Mesh(coreGeo, coreMat);
+  bladeCore.position.set(0, 0.48, 0);
+
+  weaponLight = new THREE.PointLight(0x55ff88, 1.2, 3.5);
+  weaponLight.position.set(0, 0.55, 0);
+
+  weaponGroup.add(pommel, grip, guard, weapon, bladeCore, weaponLight);
   weaponGroup.position.set(0, 0.15, -0.05);
   weaponGroup.rotation.x = -Math.PI / 4;
+  weaponGroup.userData = { bladeMat };
 
   rightHand.add(weaponGroup);
+  rightHand.userData.weaponGroup = weaponGroup;
 
   camera.add(leftHand);
   camera.add(rightHand);
   scene.add(camera);
+}
+
+// Rastro/estela de corte: deja "fantasmas" de la hoja mientras atacas, que se desvanecen
+function spawnSlashGhost() {
+  const weaponGroup = rightHand.userData.weaponGroup;
+  const ghost = weaponGroup.children[3].clone(); // la hoja (weapon)
+  ghost.material = weaponGroup.userData.bladeMat.clone();
+  ghost.material.transparent = true;
+  ghost.material.opacity = 0.35;
+  ghost.matrixAutoUpdate = false;
+  weaponGroup.updateWorldMatrix(true, true);
+  ghost.matrix.copy(weaponGroup.children[3].matrixWorld);
+  scene.add(ghost);
+  slashTrail.push({ mesh: ghost, life: 1 });
+}
+
+function updateSlashTrail() {
+  for (let i = slashTrail.length - 1; i >= 0; i--) {
+    const t = slashTrail[i];
+    t.life -= 0.08;
+    t.mesh.material.opacity = Math.max(0, t.life * 0.35);
+    if (t.life <= 0) {
+      scene.remove(t.mesh);
+      slashTrail.splice(i, 1);
+    }
+  }
 }
 
 // ---------- MONSTRUOS ----------
@@ -518,18 +731,35 @@ function nextWave() {
 
 // ---------- CONTROLES / VR ----------
 document.getElementById('vrBtn').addEventListener('click', () => {
+  stereoMode = true;
+  requestOrientationAndStart();
+});
+document.getElementById('normalBtn').addEventListener('click', () => {
+  stereoMode = false;
+  requestOrientationAndStart();
+});
+document.getElementById('modeToggle').addEventListener('click', () => {
+  stereoMode = !stereoMode;
+  document.getElementById('modeToggle').textContent = stereoMode ? 'Cambiar a Normal' : 'Cambiar a VR';
+  updateLayout();
+});
+
+function requestOrientationAndStart() {
   if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
     DeviceOrientationEvent.requestPermission().then(() => startVR()).catch(() => startVR());
   } else {
     startVR();
   }
-});
+}
 
 function startVR() {
   isVR = true;
   document.getElementById('startOverlay').style.display = 'none';
   document.getElementById('hud').style.display = 'block';
   document.getElementById('waveHud').style.display = 'block';
+  const toggleBtn = document.getElementById('modeToggle');
+  toggleBtn.style.display = 'block';
+  toggleBtn.textContent = stereoMode ? 'Cambiar a Normal' : 'Cambiar a VR';
 
   const el = document.documentElement;
   if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
@@ -634,7 +864,13 @@ function updateDayNightCycle() {
   const sunHeight = Math.sin(cycle);
 
   sunLight.intensity = Math.max(0.05, sunHeight * 1.6);
-  sunLight.position.set(Math.cos(cycle) * 60, Math.max(5, sunHeight * 70), 30);
+  const sunDist = 70;
+  sunLight.position.set(
+    camera.position.x + Math.cos(cycle) * sunDist,
+    Math.max(8, sunHeight * sunDist),
+    camera.position.z + 30
+  );
+  sunLight.target.position.copy(camera.position);
 
   moonMesh.position.set(-Math.cos(cycle) * 90, Math.max(5, -sunHeight * 60), -60);
   moonMesh.visible = sunHeight < 0.1;
@@ -649,6 +885,13 @@ function updateDayNightCycle() {
   hemiLight.intensity = 0.2 + Math.max(0, sunHeight) * 0.5;
 
   fireflies.forEach(f => { f.material.opacity = sunHeight < 0.2 ? 1 : 0; });
+
+  const nightAmount = THREE.MathUtils.clamp(0.2 - sunHeight, 0, 1) * 5;
+  lampLights.forEach(l => {
+    l.light.intensity = nightAmount * 1.2;
+    l.mat.emissiveIntensity = 0.2 + nightAmount * 1.2;
+  });
+  if (starField) starField.material.opacity = Math.max(0, -sunHeight);
 }
 
 const raycaster = new THREE.Raycaster();
@@ -662,10 +905,21 @@ function animate() {
 
   controls.update();
   updatePlayerMovement();
+  syncPlayerRig();
   updateDayNightCycle();
+  updateSlashTrail();
 
   fireflies.forEach(f => {
     f.position.y = f.userData.base.y + Math.sin(globalTime * 2 + f.userData.phase) * 0.3;
+  });
+
+  clouds.forEach(c => {
+    c.position.x += c.userData.speed;
+    if (c.position.x > 110) c.position.x = -110;
+  });
+
+  treeLeaves.forEach(l => {
+    l.rotation.z = Math.sin(globalTime * 0.6 + l.userData.phase) * 0.05;
   });
 
   if (isAttacking) {
@@ -673,13 +927,14 @@ function animate() {
     rightHand.position.z = -0.45 - Math.sin(attackTime) * 0.3;
     rightHand.rotation.x = -Math.sin(attackTime) * 0.8;
     armR.rotation.x = 0.5 + Math.sin(attackTime) * 0.6;
-    weaponLight.intensity = 0.8 + Math.sin(attackTime * 4) * 0.6;
+    weaponLight.intensity = 1.2 + Math.sin(attackTime * 4) * 0.6;
+    if (Math.floor(attackTime * 10) % 2 === 0) spawnSlashGhost();
     if (attackTime >= Math.PI) {
       isAttacking = false;
       rightHand.position.set(0.28, -0.25, -0.45);
       rightHand.rotation.set(0, 0, 0);
       armR.rotation.set(0.5, 0, -0.15);
-      weaponLight.intensity = 0.8;
+      weaponLight.intensity = 1.2;
     }
   }
 
@@ -730,7 +985,14 @@ function animate() {
     }
   });
 
-  effect.render(scene, camera);
+  if (stereoMode) {
+    renderer.setRenderTarget(lensTarget);
+    effect.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.render(lensScene, lensCamera);
+  } else {
+    renderer.render(scene, camera);
+  }
 }
 
 init();
