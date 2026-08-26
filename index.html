@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Corte JJ VR — Perspectiva Correcta</title>
+<title>Corte JJ VR — Corrección Horizontal</title>
 <style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: #000; height: 100%; font-family: sans-serif; }
   canvas { display: block; width: 100vw; height: 100vh; }
@@ -28,7 +28,7 @@
 
 <div id="startOverlay">
   <h1>⛏ CORTE JJ — VR BOX</h1>
-  <p>Perspectiva y campo visual ajustados para VR Box.</p>
+  <p>Toca el botón y coloca el celular en horizontal.</p>
   <button id="vrBtn">ENTRAR AL MUNDO VR</button>
 </div>
 
@@ -41,26 +41,26 @@ const gemRocks = [], enemies = [];
 let actionHeld = false;
 let pickaxeGroup;
 
-// Giroscopio
-let alpha = 0, beta = 0, gamma = 0, hasGyro = false;
+// Manejo preciso de orientacion para Celulares
+let deviceOrientation = {};
+let screenOrientation = 0;
 
 window.addEventListener('deviceorientation', (e) => {
-  if (e.alpha !== null) {
-    hasGyro = true;
-    alpha = THREE.MathUtils.degToRad(e.alpha || 0);
-    beta = THREE.MathUtils.degToRad(e.beta || 0);
-    gamma = THREE.MathUtils.degToRad(e.gamma || 0);
-  }
+  deviceOrientation = e;
 }, true);
+
+window.addEventListener('orientationchange', () => {
+  screenOrientation = window.orientation || 0;
+  setTimeout(onWindowResize, 200);
+});
 
 function init() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x7ec0ee);
-  scene.fog = new THREE.FogExp2(0x7ec0ee, 0.008); // Neblina más ligera para ver a lo lejos
+  scene.fog = new THREE.FogExp2(0x7ec0ee, 0.01);
 
-  // FOV ampliado a 95° para alejamiento visual realista
-  camera = new THREE.PerspectiveCamera(95, window.innerWidth / window.innerHeight, 0.1, 150);
-  camera.position.set(0, 1.8, 8); // Jugador más alto y alejado del origen
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 150);
+  camera.position.set(0, 1.6, 5);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -68,28 +68,28 @@ function init() {
   document.body.appendChild(renderer.domElement);
 
   effect = new THREE.StereoEffect(renderer);
-  effect.eyeSeparation = 0.04; // Separación óptica adaptada para smartphones y VR Box
+  effect.eyeSeparation = 0.035; // Distancia corregida para VR Box
   effect.setSize(window.innerWidth, window.innerHeight);
 
   // Luces
-  const light = new THREE.HemisphereLight(0xffffff, 0x335522, 1.3);
+  const light = new THREE.HemisphereLight(0xffffff, 0x335522, 1.2);
   scene.add(light);
-  const sun = new THREE.DirectionalLight(0xfffaed, 1);
-  sun.position.set(30, 50, 30);
+  const sun = new THREE.DirectionalLight(0xfffaed, 0.9);
+  sun.position.set(20, 40, 20);
   scene.add(sun);
 
   buildEnvironment();
   createPickaxe();
 
-  // Distribuir elementos más lejos del jugador
-  for(let i=0; i<15; i++) {
-    const r = 10 + Math.random()*25;
+  // Spawns
+  for(let i=0; i<12; i++) {
+    const r = 8 + Math.random()*20;
     const a = Math.random()*Math.PI*2;
     spawnRock(Math.cos(a)*r, Math.sin(a)*r);
   }
 
   for(let i=0; i<3; i++) {
-    const r = 15 + Math.random()*20;
+    const r = 12 + Math.random()*15;
     const a = Math.random()*Math.PI*2;
     spawnEnemy(Math.cos(a)*r, Math.sin(a)*r);
   }
@@ -102,54 +102,53 @@ function init() {
 }
 
 function buildEnvironment() {
-  // Suelo grande
+  // Suelo
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(200, 200),
+    new THREE.PlaneGeometry(160, 160),
     new THREE.MeshLambertMaterial({ color: 0x4e8b28 })
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  // Montañas gigantes de fondo
-  for(let i=0; i<20; i++) {
-    const ang = (i / 20) * Math.PI * 2;
-    const dist = 70 + Math.random()*10;
+  // Montañas
+  for(let i=0; i<16; i++) {
+    const ang = (i / 16) * Math.PI * 2;
+    const dist = 60 + Math.random()*10;
     const m = new THREE.Mesh(
-      new THREE.ConeGeometry(12 + Math.random()*6, 25 + Math.random()*15, 6),
+      new THREE.ConeGeometry(10 + Math.random()*5, 20 + Math.random()*10, 5),
       new THREE.MeshLambertMaterial({ color: 0x2e5016 })
     );
-    m.position.set(Math.cos(ang)*dist, 10, Math.sin(ang)*dist);
+    m.position.set(Math.cos(ang)*dist, 8, Math.sin(ang)*dist);
     scene.add(m);
   }
 
-  // Bosque de árboles alejados
-  for(let i=0; i<45; i++) {
-    const r = 8 + Math.random()*45;
+  // Bosque
+  for(let i=0; i<35; i++) {
+    const r = 6 + Math.random()*35;
     const a = Math.random()*Math.PI*2;
     createTree(Math.cos(a)*r, Math.sin(a)*r);
   }
 }
 
 function createTree(x, z) {
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 3.5), new THREE.MeshLambertMaterial({color: 0x5a3d28}));
-  trunk.position.set(x, 1.75, z);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 3), new THREE.MeshLambertMaterial({color: 0x5a3d28}));
+  trunk.position.set(x, 1.5, z);
   scene.add(trunk);
 
-  const leaves = new THREE.Mesh(new THREE.DodecahedronGeometry(2), new THREE.MeshLambertMaterial({color: 0x1e6019}));
-  leaves.position.set(x, 4.2, z);
+  const leaves = new THREE.Mesh(new THREE.DodecahedronGeometry(1.6), new THREE.MeshLambertMaterial({color: 0x1e6019}));
+  leaves.position.set(x, 3.5, z);
   scene.add(leaves);
 }
 
 function createPickaxe() {
   pickaxeGroup = new THREE.Group();
 
-  // Mano y Herramienta posicionada más abajo y afuera
   const handle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.5, 0.04), new THREE.MeshLambertMaterial({color: 0x5a3d28}));
-  handle.position.set(0.35, -0.3, -0.6);
-  handle.rotation.x = Math.PI / 3;
+  handle.position.set(0.3, -0.25, -0.5);
+  handle.rotation.x = Math.PI / 4;
 
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.08), new THREE.MeshLambertMaterial({color: 0xcccccc}));
-  head.position.set(0.35, -0.15, -0.75);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.05, 0.07), new THREE.MeshLambertMaterial({color: 0xcccccc}));
+  head.position.set(0.3, -0.1, -0.65);
 
   pickaxeGroup.add(handle, head);
   camera.add(pickaxeGroup);
@@ -161,7 +160,7 @@ function spawnRock(x, z) {
     new THREE.DodecahedronGeometry(0.5),
     new THREE.MeshLambertMaterial({ color: 0x00ff55 })
   );
-  rock.position.set(x, 0.5, z);
+  rock.position.set(x, 0.4, z);
   rock.userData = { hp: 0 };
   scene.add(rock);
   gemRocks.push(rock);
@@ -169,13 +168,13 @@ function spawnRock(x, z) {
 
 function spawnEnemy(x, z) {
   const enemyGroup = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.6, 0.8), new THREE.MeshLambertMaterial({color: 0x881111}));
-  body.position.y = 0.8;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.5, 0.7), new THREE.MeshLambertMaterial({color: 0x881111}));
+  body.position.y = 0.75;
 
-  const eye1 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.1), new THREE.MeshBasicMaterial({color: 0xffff00}));
-  eye1.position.set(-0.2, 1.2, -0.41);
+  const eye1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.1), new THREE.MeshBasicMaterial({color: 0xffff00}));
+  eye1.position.set(-0.15, 1.1, -0.36);
   const eye2 = eye1.clone();
-  eye2.position.x = 0.2;
+  eye2.position.x = 0.15;
 
   enemyGroup.add(body, eye1, eye2);
   enemyGroup.position.set(x, 0, z);
@@ -186,10 +185,12 @@ function spawnEnemy(x, z) {
 }
 
 function onWindowResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  camera.aspect = width / height;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  effect.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(width, height);
+  effect.setSize(width, height);
 }
 
 document.getElementById('vrBtn').addEventListener('click', () => {
@@ -204,41 +205,63 @@ function startVR() {
   isVR = true;
   document.getElementById('startOverlay').style.display = 'none';
   document.getElementById('hud').style.display = 'block';
+  
   const el = document.documentElement;
   if (el.requestFullscreen) el.requestFullscreen().catch(()=>{});
+
+  onWindowResize();
   animate();
 }
 
+// LÓGICA DE ROTACIÓN CUÁNTICA PARA EVITAR DISTORSIÓN HORIZONTAL
+const updateCameraRotation = (function() {
+  const zee = new THREE.Vector3(0, 0, 1);
+  const euler = new THREE.Euler();
+  const q0 = new THREE.Quaternion();
+  const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+
+  return function() {
+    if (!deviceOrientation || deviceOrientation.alpha === null) return;
+
+    const alpha = deviceOrientation.alpha ? THREE.MathUtils.degToRad(deviceOrientation.alpha) : 0;
+    const beta = deviceOrientation.beta ? THREE.MathUtils.degToRad(deviceOrientation.beta) : 0;
+    const gamma = deviceOrientation.gamma ? THREE.MathUtils.degToRad(deviceOrientation.gamma) : 0;
+    const orient = screenOrientation ? THREE.MathUtils.degToRad(screenOrientation) : 0;
+
+    euler.set(beta, alpha, -gamma, 'YXZ');
+    camera.quaternion.setFromEuler(euler);
+    camera.quaternion.multiply(q1);
+    camera.quaternion.multiply(q0.setFromAxisAngle(zee, -orient));
+  };
+})();
+
 const raycaster = new THREE.Raycaster();
 const dir = new THREE.Vector3();
-const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 let swingAngle = 0;
 
 function animate() {
   requestAnimationFrame(animate);
   if (!isVR) return;
 
-  if (hasGyro) {
-    euler.set(beta - Math.PI / 2, alpha, -gamma, 'YXZ');
-    camera.quaternion.setFromEuler(euler);
-  }
+  // Actualizar rotación real según la inclinación
+  updateCameraRotation();
 
-  // Avanzar al mantener pulsada la pantalla
+  // Movimiento al presionar
   if (actionHeld) {
     camera.getWorldDirection(dir);
     dir.y = 0;
     dir.normalize();
-    camera.position.addScaledVector(dir, 0.06);
+    camera.position.addScaledVector(dir, 0.05);
 
-    swingAngle += 0.25;
-    pickaxeGroup.rotation.x = Math.sin(swingAngle) * 0.4;
+    swingAngle += 0.2;
+    pickaxeGroup.rotation.x = Math.sin(swingAngle) * 0.3;
   } else {
     pickaxeGroup.rotation.set(0,0,0);
   }
 
   raycaster.set(camera.position, camera.getWorldDirection(dir));
 
-  // Minado de Esmeraldas
+  // Minar
   const hitGems = raycaster.intersectObjects(gemRocks);
   if (hitGems.length > 0 && actionHeld) {
     const target = hitGems[0].object;
@@ -252,18 +275,18 @@ function animate() {
     }
   }
 
-  // Comportamiento de Enemigos
+  // Enemigos
   enemies.forEach((enemy, index) => {
     const ePos = enemy.position;
     const distance = ePos.distanceTo(camera.position);
 
-    if (distance > 1.5) {
+    if (distance > 1.4) {
       const moveDir = new THREE.Vector3().subVectors(camera.position, ePos).normalize();
-      ePos.x += moveDir.x * 0.02;
-      ePos.z += moveDir.z * 0.02;
+      ePos.x += moveDir.x * 0.018;
+      ePos.z += moveDir.z * 0.018;
       enemy.lookAt(camera.position.x, enemy.position.y, camera.position.z);
     } else {
-      playerHp -= 0.15;
+      playerHp -= 0.1;
       document.getElementById('hp').textContent = Math.max(0, Math.floor(playerHp));
     }
 
