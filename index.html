@@ -3,23 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Corte JJ VR — Immersive Village & Body</title>
+<title>Corte JJ VR — Day Village</title>
 <style>
-  html, body { margin: 0; padding: 0; overflow: hidden; background: #000; height: 100%; width: 100%; font-family: sans-serif; }
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #87ceeb; height: 100%; width: 100%; font-family: sans-serif; }
   canvas { display: block; width: 100vw; height: 100vh; }
   #startOverlay {
-    position: fixed; inset: 0; z-index: 99; background: radial-gradient(circle, #0b1a28 0%, #02060d 100%); color: #eafff0;
+    position: fixed; inset: 0; z-index: 99; background: #1c352d; color: #eafff0;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; text-align: center; padding: 20px;
   }
-  #startOverlay h1 { color: #00f0ff; font-size: 28px; margin: 0; text-shadow: 0 0 10px rgba(0,240,255,0.5); }
+  #startOverlay h1 { color: #55ff77; font-size: 28px; margin: 0; }
   #vrBtn {
-    font-size: 18px; padding: 18px 36px; background: linear-gradient(45deg, #00f0ff, #0055ff); color: #fff; border: none;
-    border-radius: 30px; font-weight: bold; cursor: pointer; text-transform: uppercase; box-shadow: 0 0 15px rgba(0,240,255,0.4);
+    font-size: 18px; padding: 18px 36px; background: #55ff77; color: #0b1f14; border: none;
+    border-radius: 30px; font-weight: bold; cursor: pointer; text-transform: uppercase; box-shadow: 0 4px 15px rgba(85,255,119,0.4);
   }
   #hud {
-    position: fixed; top: 16px; left: 16px; z-index: 10; background: rgba(5, 15, 25, 0.85);
-    color: #00f0ff; padding: 10px 18px; border-radius: 12px; font-size: 15px; display: none; font-weight: bold;
-    border: 1px solid rgba(0,240,255,0.3); backdrop-filter: blur(4px);
+    position: fixed; top: 16px; left: 16px; z-index: 10; background: rgba(0, 0, 0, 0.65);
+    color: #55ff77; padding: 10px 18px; border-radius: 12px; font-size: 15px; display: none; font-weight: bold;
+    backdrop-filter: blur(4px);
   }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -28,8 +28,8 @@
 <body>
 
 <div id="startOverlay">
-  <h1>⚔️ CORTE JJ — REALISTIC VR VILLAGE</h1>
-  <p>1. Conecta tu control Bluetooth.<br>2. Pon el celular en HORIZONTAL.<br>3. Colócalo en tu VR Box.</p>
+  <h1>⚔️ CORTE JJ — VR DAYLIGHT</h1>
+  <p>1. Conecta tu control Bluetooth.<br>2. Pon el celular en HORIZONTAL.<br>3. Colócalo en tus VR Box.</p>
   <button id="vrBtn">ENTRAR AL MUNDO VR</button>
 </div>
 
@@ -43,7 +43,7 @@ let leftHand, rightHand, weapon, playerBody;
 let isAttacking = false, attackTime = 0;
 let globalTime = 0;
 
-// Giroscopio
+// Giroscopio ajustado
 let alpha = 0, beta = 0, gamma = 0, hasGyro = false;
 
 window.addEventListener('deviceorientation', (e) => {
@@ -57,34 +57,35 @@ window.addEventListener('deviceorientation', (e) => {
 
 function init() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x050a14);
-  scene.fog = new THREE.FogExp2(0x0a1526, 0.02);
+  scene.background = new THREE.Color(0x87ceeb); // Cielo azul claro
+  scene.fog = new THREE.FogExp2(0xa0d8ef, 0.012);
 
-  camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 150);
+  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 150);
   camera.position.set(0, 1.6, 0);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
   document.body.appendChild(renderer.domElement);
 
   effect = new THREE.StereoEffect(renderer);
-  effect.eyeSeparation = 0.045;
+  effect.eyeSeparation = 0.04;
 
-  // Iluminación
-  const ambientLight = new THREE.AmbientLight(0x223344, 1.2);
-  scene.add(ambientLight);
+  // Iluminación Solar de Día
+  const sunLight = new THREE.DirectionalLight(0xfffaed, 1.3);
+  sunLight.position.set(30, 60, 20);
+  scene.add(sunLight);
 
-  const moonLight = new THREE.DirectionalLight(0x00d9ff, 1);
-  moonLight.position.set(-30, 50, -20);
-  scene.add(moonLight);
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x3d6e35, 0.8);
+  scene.add(hemiLight);
 
-  buildVillage();
+  buildDayVillage();
   createPlayerBody();
   createHandsAndWeapon();
 
-  // Spawns de monstruos dinámicos
+  // Spawns
   for(let i = 0; i < 5; i++) {
     spawnDynamicMonster();
   }
@@ -104,44 +105,55 @@ function updateLayout() {
   effect.setSize(width, height);
 }
 
-function buildVillage() {
-  // Suelo principal
+function buildDayVillage() {
+  // Terreno Verde / Pasto
   const groundGeo = new THREE.PlaneGeometry(250, 250);
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x07111e, roughness: 0.9 });
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x478e34, roughness: 0.8 });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  // Rejilla Neón del terreno
-  const grid = new THREE.GridHelper(250, 100, 0x00f0ff, 0x08233d);
-  grid.position.y = 0.01;
-  scene.add(grid);
+  // Arboles modernos alrededor
+  for(let i = 0; i < 35; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 18 + Math.random() * 45;
+    createTree(Math.cos(angle)*dist, Math.sin(angle)*dist);
+  }
 
-  // Construir 3 Casas Inmersivas para Entrar
+  // Casas Inmersivas para Entrar
   createHouse(-12, -15);
   createHouse(12, -20);
   createHouse(0, -35);
+}
 
-  // Faroles con luz dentro del pueblo
-  createLampPost(-6, -8);
-  createLampPost(6, -8);
+function createTree(x, z) {
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.25, 0.35, 3.5, 6),
+    new THREE.MeshStandardMaterial({ color: 0x5a3d28, roughness: 0.9 })
+  );
+  trunk.position.set(x, 1.75, z);
+
+  const leaves = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(1.8),
+    new THREE.MeshStandardMaterial({ color: 0x228b22, roughness: 0.6 })
+  );
+  leaves.position.set(x, 4, z);
+
+  scene.add(trunk, leaves);
 }
 
 function createHouse(x, z) {
   const houseGroup = new THREE.Group();
 
-  // Paredes huecas (Entrada libre)
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x122438, roughness: 0.5 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xd9c5b2, roughness: 0.7 });
 
-  // Pared Trasera
+  // Paredes
   const backWall = new THREE.Mesh(new THREE.BoxGeometry(8, 4, 0.2), wallMat);
   backWall.position.set(0, 2, -4);
 
-  // Pared Izquierda
   const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.2, 4, 8), wallMat);
   leftWall.position.set(-4, 2, 0);
 
-  // Pared Derecha
   const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.2, 4, 8), wallMat);
   rightWall.position.set(4, 2, 0);
 
@@ -155,57 +167,36 @@ function createHouse(x, z) {
   const frontWallTop = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.2, 0.2), wallMat);
   frontWallTop.position.set(0, 3.4, 4);
 
-  // Techo
-  const roofMat = new THREE.MeshStandardMaterial({ color: 0x051324 });
+  // Techo Teja Red
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0xa53a2a, roughness: 0.5 });
   const roof = new THREE.Mesh(new THREE.ConeGeometry(6.5, 3, 4), roofMat);
   roof.position.set(0, 5.5, 0);
   roof.rotation.y = Math.PI / 4;
 
-  // Luz Interior Cálida
-  const houseLight = new THREE.PointLight(0xff9900, 1.5, 10);
-  houseLight.position.set(0, 3, 0);
-
   // Suelo Interior de Madera
   const floorInside = new THREE.Mesh(
     new THREE.PlaneGeometry(7.8, 7.8),
-    new THREE.MeshStandardMaterial({ color: 0x3d271d })
+    new THREE.MeshStandardMaterial({ color: 0x6e473b })
   );
   floorInside.rotation.x = -Math.PI / 2;
   floorInside.position.y = 0.02;
 
-  houseGroup.add(backWall, leftWall, rightWall, frontWallLeft, frontWallRight, frontWallTop, roof, houseLight, floorInside);
+  houseGroup.add(backWall, leftWall, rightWall, frontWallLeft, frontWallRight, frontWallTop, roof, floorInside);
   houseGroup.position.set(x, 0, z);
   scene.add(houseGroup);
-}
-
-function createLampPost(x, z) {
-  const pole = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.1, 0.1, 4),
-    new THREE.MeshStandardMaterial({ color: 0x111111 })
-  );
-  pole.position.set(x, 2, z);
-
-  const light = new THREE.PointLight(0x00ffcc, 1.5, 12);
-  light.position.set(x, 3.8, z);
-
-  scene.add(pole);
-  scene.add(light);
 }
 
 function createPlayerBody() {
   playerBody = new THREE.Group();
 
-  // Torso / Armadura
-  const torsoMat = new THREE.MeshStandardMaterial({ color: 0x112233, metalness: 0.8, roughness: 0.2 });
+  const torsoMat = new THREE.MeshStandardMaterial({ color: 0x2b4c7e, metalness: 0.5, roughness: 0.3 });
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.65, 0.25), torsoMat);
   torso.position.set(0, -0.65, -0.1);
 
-  // Pierna Izquierda
-  const legMat = new THREE.MeshStandardMaterial({ color: 0x091420 });
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x1c2b42 });
   const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), legMat);
   leftLeg.position.set(-0.15, -1.25, -0.1);
 
-  // Pierna Derecha
   const rightLeg = leftLeg.clone();
   rightLeg.position.x = 0.15;
 
@@ -214,7 +205,7 @@ function createPlayerBody() {
 }
 
 function createHandsAndWeapon() {
-  const handMat = new THREE.MeshStandardMaterial({ color: 0x1f3044, roughness: 0.4 });
+  const handMat = new THREE.MeshStandardMaterial({ color: 0xe0ac69, roughness: 0.6 });
 
   leftHand = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.22), handMat);
   leftHand.position.set(-0.25, -0.25, -0.45);
@@ -222,7 +213,7 @@ function createHandsAndWeapon() {
   rightHand = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.22), handMat);
   rightHand.position.set(0.25, -0.25, -0.45);
 
-  const bladeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+  const bladeMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.1 });
   weapon = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.7, 0.03), bladeMat);
   weapon.position.set(0, 0.25, -0.05);
   weapon.rotation.x = -Math.PI / 5;
@@ -236,23 +227,17 @@ function createHandsAndWeapon() {
 function spawnDynamicMonster() {
   const monsterGroup = new THREE.Group();
 
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x880011, roughness: 0.3 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.3 });
   const body = new THREE.Mesh(new THREE.DodecahedronGeometry(0.6), bodyMat);
   body.position.y = 1.0;
 
-  // Núcleo de Energía Dinámico
-  const coreMat = new THREE.MeshBasicMaterial({ color: 0xff0055 });
-  const core = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), coreMat);
-  core.position.y = 1.0;
-
-  // Ojos flotantes
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
   const eye1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), eyeMat);
   eye1.position.set(-0.2, 1.2, -0.35);
   const eye2 = eye1.clone();
   eye2.position.x = 0.2;
 
-  monsterGroup.add(body, core, eye1, eye2);
+  monsterGroup.add(body, eye1, eye2);
 
   const angle = Math.random() * Math.PI * 2;
   const dist = 14 + Math.random() * 12;
@@ -290,7 +275,7 @@ function triggerAttack() {
   }
 }
 
-// Movimiento preciso por Control Bluetooth
+// Movimiento por Control Bluetooth
 function updateGamepadInput() {
   const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
   for (let gp of gamepads) {
@@ -313,12 +298,14 @@ function updateGamepadInput() {
   }
 }
 
-// Giroscopio ajustado con vista recta
+// Giroscopio ajustado con alineación recta en cabeza erguida
 function updateCameraOrientation() {
   if (!hasGyro) return;
-  const radX = THREE.MathUtils.degToRad(beta - 90); 
-  const radY = THREE.MathUtils.degToRad(-alpha); 
-  const radZ = THREE.MathUtils.degToRad(-gamma);
+  // Conversión limpia para mantener la visión derecha al mirar de frente
+  const radX = THREE.MathUtils.degToRad(gamma); 
+  const radY = THREE.MathUtils.degToRad(alpha); 
+  const radZ = THREE.MathUtils.degToRad(-beta);
+
   camera.rotation.set(radX, radY, radZ, 'YXZ');
 }
 
@@ -333,7 +320,6 @@ function animate() {
   updateCameraOrientation();
   updateGamepadInput();
 
-  // Ataque de espada
   if (isAttacking) {
     attackTime += 0.25;
     rightHand.position.z = -0.45 - Math.sin(attackTime) * 0.25;
@@ -347,12 +333,10 @@ function animate() {
 
   raycaster.set(camera.position, camera.getWorldDirection(dir));
 
-  // Animación y persecución de Monstruos
   enemies.forEach((enemy, index) => {
     const ePos = enemy.position;
     const distance = ePos.distanceTo(camera.position);
 
-    // Flotación Dinámica
     ePos.y = Math.sin(globalTime + enemy.userData.baseZ) * 0.2 + 0.2;
 
     if (distance > 1.3) {
@@ -365,12 +349,11 @@ function animate() {
       document.getElementById('hp').textContent = Math.max(0, Math.floor(playerHp));
     }
 
-    // Impactos en Monstruos
     const hitEnemies = raycaster.intersectObjects(enemy.children);
     if (hitEnemies.length > 0 && isAttacking) {
       enemy.userData.hp -= 1;
-      enemy.userData.meshBody.color.setHex(0xffffff); // Parpadeo al recibir daño
-      setTimeout(() => enemy.userData.meshBody.color.setHex(0x880011), 100);
+      enemy.userData.meshBody.color.setHex(0xffffff);
+      setTimeout(() => enemy.userData.meshBody.color.setHex(0xcc2222), 100);
 
       enemy.position.x += dir.x * 0.6;
       enemy.position.z += dir.z * 0.6;
