@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Corte JJ VR — Ultra Edition</title>
+<title>Corte JJ VR — Ultra Edition v2</title>
 <style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: #000; height: 100%; width: 100%; font-family: 'Segoe UI', sans-serif; }
   canvas { display: block; width: 100vw; height: 100vh; }
@@ -12,6 +12,7 @@
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 15px; text-align: center; padding: 20px;
   }
   #startOverlay h1 { color: #55ff88; font-size: 32px; margin: 0; text-shadow: 0 0 15px rgba(85,255,136,0.6); }
+  #startOverlay p { line-height: 1.5; opacity: 0.9; max-width: 420px; }
   #vrBtn {
     font-size: 18px; padding: 18px 36px; background: linear-gradient(45deg, #55ff88, #00b34a); color: #07170d; border: none;
     border-radius: 30px; font-weight: bold; cursor: pointer; text-transform: uppercase; box-shadow: 0 4px 20px rgba(85,255,136,0.5);
@@ -21,6 +22,15 @@
     color: #55ff88; padding: 10px 18px; border-radius: 20px; font-size: 15px; display: none; font-weight: bold;
     backdrop-filter: blur(5px); border: 1px solid rgba(85,255,136,0.4);
   }
+  #waveHud {
+    position: fixed; top: 16px; right: 16px; z-index: 10; background: rgba(0,0,0,0.7);
+    color: #ffcc55; padding: 10px 18px; border-radius: 20px; font-size: 15px; display: none; font-weight: bold;
+    backdrop-filter: blur(5px); border: 1px solid rgba(255,204,85,0.4);
+  }
+  #dmgFlash {
+    position: fixed; inset: 0; z-index: 9; background: rgba(255,0,0,0.35); opacity: 0; pointer-events: none;
+    transition: opacity 0.15s ease-out;
+  }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/effects/StereoEffect.js"></script>
@@ -29,28 +39,34 @@
 <body>
 
 <div id="startOverlay">
-  <h1>⚔️ CORTE JJ VR (ULTRA)</h1>
-  <p>1. Conecta tu mando Bluetooth o toca la pantalla.<br>2. Pon el celular en HORIZONTAL.<br>3. Colócatelo en el VR Box.</p>
+  <h1>⚔️ CORTE JJ VR (ULTRA v2)</h1>
+  <p>1. Conecta tu mando Bluetooth (joystick izquierdo = moverte hacia adelante/atrás y a los LADOS).<br>2. Pon el celular en HORIZONTAL.<br>3. Colócatelo en el VR Box.<br>4. Botón del mando o toque en pantalla = atacar.</p>
   <button id="vrBtn">INICIAR VR</button>
 </div>
 
 <div id="hud">👹 Monstruos: <span id="score">0</span> | ❤️ Vida: <span id="hp">100</span></div>
+<div id="waveHud">🌊 Oleada: <span id="wave">1</span></div>
+<div id="dmgFlash"></div>
 
 <script>
 let camera, scene, renderer, effect, controls;
-let isVR = false, score = 0, playerHp = 100;
+let isVR = false, score = 0, playerHp = 100, wave = 1;
 const enemies = [];
-let leftHand, rightHand, weapon, playerBody;
+let leftHand, rightHand, weapon, weaponLight, playerBody, legL, legR;
 let isAttacking = false, attackTime = 0;
 let globalTime = 0;
 let autoMoveForward = false;
+let walkCycle = 0;
+let sunLight, hemiLight, ambientLight, moonMesh;
+const fireflies = [];
+const WALK_SPEED = 0.09;
 
 function init() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x5c94cd); 
+  scene.background = new THREE.Color(0x5c94cd);
   scene.fog = new THREE.FogExp2(0x81abdc, 0.008);
 
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 220);
   camera.position.set(0, 1.7, 0);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -67,36 +83,35 @@ function init() {
 
   controls = new THREE.DeviceOrientationControls(camera);
 
-  // Iluminación Avanzada
-  const sunLight = new THREE.DirectionalLight(0xfff2d1, 1.6);
+  sunLight = new THREE.DirectionalLight(0xfff2d1, 1.6);
   sunLight.position.set(40, 70, 30);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.width = 2048;
   sunLight.shadow.mapSize.height = 2048;
   scene.add(sunLight);
 
-  const ambientLight = new THREE.AmbientLight(0x76a3d9, 0.5);
+  ambientLight = new THREE.AmbientLight(0x76a3d9, 0.5);
   scene.add(ambientLight);
 
-  const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x3b6329, 0.6);
+  hemiLight = new THREE.HemisphereLight(0xddeeff, 0x3b6329, 0.6);
   scene.add(hemiLight);
 
+  moonMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(3, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0xdfe8ff })
+  );
+  scene.add(moonMesh);
+
   buildModernWorld();
+  buildFutureCity();
+  buildFireflies();
   createPlayerBodyModern();
   createHandsAndWeaponModern();
 
-  for(let i = 0; i < 5; i++) spawnDynamicMonster();
+  for (let i = 0; i < 5; i++) spawnDynamicMonster();
 
-  // Controles Táctiles (Tocar pantalla para avanzar/atacar)
-  window.addEventListener('touchstart', (e) => {
-    triggerAttack();
-    autoMoveForward = true;
-  }, {passive: true});
-  
-  window.addEventListener('touchend', () => {
-    autoMoveForward = false;
-  });
-
+  window.addEventListener('touchstart', () => { triggerAttack(); autoMoveForward = true; }, { passive: true });
+  window.addEventListener('touchend', () => { autoMoveForward = false; });
   window.addEventListener('mousedown', () => triggerAttack());
   window.addEventListener('resize', updateLayout);
   window.addEventListener('orientationchange', () => setTimeout(updateLayout, 300));
@@ -111,37 +126,91 @@ function updateLayout() {
   effect.setSize(width, height);
 }
 
+// ---------- MUNDO ----------
 function buildModernWorld() {
-  // Terreno
-  const groundGeo = new THREE.PlaneGeometry(300, 300);
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x3b702a, roughness: 0.9 });
+  const groundGeo = new THREE.PlaneGeometry(300, 300, 60, 60);
+  const posAttr = groundGeo.attributes.position;
+  const colors = [];
+  for (let i = 0; i < posAttr.count; i++) {
+    const shade = 0.85 + Math.random() * 0.3;
+    colors.push(0.15 * shade, 0.45 * shade, 0.16 * shade);
+  }
+  groundGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const groundMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Montañas lejanas
-  for(let i = 0; i < 12; i++) {
+  for (let i = 0; i < 12; i++) {
     const angle = (i / 12) * Math.PI * 2;
     const mountain = new THREE.Mesh(
       new THREE.ConeGeometry(30 + Math.random() * 20, 50 + Math.random() * 20, 5),
       new THREE.MeshStandardMaterial({ color: 0x2b455c, roughness: 0.9 })
     );
-    mountain.position.set(Math.cos(angle) * 120, 20, Math.sin(angle) * 120);
+    mountain.position.set(Math.cos(angle) * 130, 20, Math.sin(angle) * 130);
     scene.add(mountain);
   }
 
-  // Rocas y Vegetación
-  for(let i = 0; i < 40; i++) {
+  for (let i = 0; i < 40; i++) {
     const angle = Math.random() * Math.PI * 2;
     const dist = 12 + Math.random() * 50;
-    createTree(Math.cos(angle)*dist, Math.sin(angle)*dist);
-    if(i % 2 === 0) createRock(Math.cos(angle)*(dist+4), Math.sin(angle)*(dist+4));
+    createTree(Math.cos(angle) * dist, Math.sin(angle) * dist);
+    if (i % 2 === 0) createRock(Math.cos(angle) * (dist + 4), Math.sin(angle) * (dist + 4));
   }
 
   createHouse(-15, -20);
   createHouse(15, -22);
   createHouse(0, -40);
+
+  const pondGeo = new THREE.CircleGeometry(6, 32);
+  const pondMat = new THREE.MeshStandardMaterial({ color: 0x2266aa, roughness: 0.1, metalness: 0.6, transparent: true, opacity: 0.85 });
+  const pond = new THREE.Mesh(pondGeo, pondMat);
+  pond.rotation.x = -Math.PI / 2;
+  pond.position.set(20, 0.05, 25);
+  scene.add(pond);
+}
+
+// Skyline futurista lejano para contrastar con la aldea, dando sensación "moderna"
+function buildFutureCity() {
+  const towerColors = [0x1a2536, 0x24304a, 0x151d2b];
+  for (let i = 0; i < 10; i++) {
+    const angle = (i / 10) * Math.PI * 2 + 0.3;
+    const dist = 85 + Math.random() * 15;
+    const h = 18 + Math.random() * 30;
+    const tower = new THREE.Mesh(
+      new THREE.BoxGeometry(6 + Math.random() * 3, h, 6 + Math.random() * 3),
+      new THREE.MeshStandardMaterial({ color: towerColors[i % towerColors.length], roughness: 0.4, metalness: 0.3 })
+    );
+    tower.position.set(Math.cos(angle) * dist, h / 2, Math.sin(angle) * dist);
+    scene.add(tower);
+
+    // ventanas emisivas
+    const windowMat = new THREE.MeshBasicMaterial({ color: 0xffe27a });
+    for (let w = 0; w < 6; w++) {
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6), windowMat);
+      win.position.set(
+        tower.position.x + (Math.random() - 0.5) * 4,
+        2 + Math.random() * (h - 4),
+        tower.position.z + (Math.random() > 0.5 ? 3.01 : -3.01)
+      );
+      if (Math.random() > 0.5) win.rotation.y = Math.PI;
+      scene.add(win);
+    }
+  }
+}
+
+function buildFireflies() {
+  const fireflyMat = new THREE.MeshBasicMaterial({ color: 0x9dffb0 });
+  for (let i = 0; i < 25; i++) {
+    const f = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), fireflyMat);
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 5 + Math.random() * 30;
+    f.position.set(Math.cos(angle) * dist, 0.5 + Math.random() * 2, Math.sin(angle) * dist);
+    f.userData = { base: f.position.clone(), phase: Math.random() * 10 };
+    scene.add(f);
+    fireflies.push(f);
+  }
 }
 
 function createTree(x, z) {
@@ -197,30 +266,32 @@ function createHouse(x, z) {
   scene.add(houseGroup);
 }
 
-// Personaje Futurista / Moderno
+// ---------- PERSONAJE ----------
 function createPlayerBodyModern() {
   playerBody = new THREE.Group();
 
   const armorMat = new THREE.MeshStandardMaterial({ color: 0x112233, metalness: 0.8, roughness: 0.2 });
   const glowMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
 
-  // Torso metálico
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.3), armorMat);
   torso.position.set(0, -0.65, -0.1);
 
-  // Núcleo brillante en el pecho
   const core = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.32, 8), glowMat);
   core.rotation.x = Math.PI / 2;
   core.position.set(0, -0.55, -0.05);
 
-  // Hombreras modernas
   const shoulderLeft = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.25), armorMat);
   shoulderLeft.position.set(-0.32, -0.4, -0.1);
-
   const shoulderRight = shoulderLeft.clone();
   shoulderRight.position.x = 0.32;
 
-  playerBody.add(torso, core, shoulderLeft, shoulderRight);
+  // Piernas visibles al mirar hacia abajo, para que el cuerpo se sienta completo
+  legL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.9, 0.2), armorMat);
+  legL.position.set(-0.13, -1.55, -0.1);
+  legR = legL.clone();
+  legR.position.x = 0.13;
+
+  playerBody.add(torso, core, shoulderLeft, shoulderRight, legL, legR);
   camera.add(playerBody);
 }
 
@@ -229,21 +300,24 @@ function createHandsAndWeaponModern() {
 
   leftHand = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.22), gloveMat);
   leftHand.position.set(-0.28, -0.25, -0.45);
+  leftHand.userData.rest = leftHand.position.clone();
 
   rightHand = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.22), gloveMat);
   rightHand.position.set(0.28, -0.25, -0.45);
+  rightHand.userData.rest = rightHand.position.clone();
 
-  // Espada tipo Plasma
   const hiltMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.9 });
   const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.25), hiltMat);
-  hilt.position.set(0, 0, 0);
 
   const bladeMat = new THREE.MeshBasicMaterial({ color: 0x55ff88 });
   weapon = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.85, 0.02), bladeMat);
   weapon.position.set(0, 0.45, 0);
 
+  weaponLight = new THREE.PointLight(0x55ff88, 0.8, 3);
+  weaponLight.position.set(0, 0.6, 0);
+
   const weaponGroup = new THREE.Group();
-  weaponGroup.add(hilt, weapon);
+  weaponGroup.add(hilt, weapon, weaponLight);
   weaponGroup.position.set(0, 0.15, -0.05);
   weaponGroup.rotation.x = -Math.PI / 4;
 
@@ -254,17 +328,21 @@ function createHandsAndWeaponModern() {
   scene.add(camera);
 }
 
+// ---------- MONSTRUOS ----------
 function spawnDynamicMonster() {
   const monsterGroup = new THREE.Group();
+  const isFlyer = Math.random() > 0.6;
 
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xb71c1c, roughness: 0.3, metalness: 0.2 });
-  const body = new THREE.Mesh(new THREE.DodecahedronGeometry(0.65), bodyMat);
-  body.position.y = 1.0;
+  const bodyColor = isFlyer ? 0x6a1fb3 : 0xb71c1c;
+  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.3, metalness: 0.2 });
+  const body = new THREE.Mesh(new THREE.DodecahedronGeometry(isFlyer ? 0.5 : 0.65), bodyMat);
+  body.position.y = isFlyer ? 2.2 : 1.0;
   body.castShadow = true;
 
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+  const eyeColor = isFlyer ? 0xffaa00 : 0x00ffff;
+  const eyeMat = new THREE.MeshBasicMaterial({ color: eyeColor });
   const eye1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), eyeMat);
-  eye1.position.set(-0.2, 1.25, -0.38);
+  eye1.position.set(-0.2, body.position.y + 0.25, -0.38);
   const eye2 = eye1.clone();
   eye2.position.x = 0.2;
 
@@ -272,13 +350,28 @@ function spawnDynamicMonster() {
 
   const angle = Math.random() * Math.PI * 2;
   const dist = 16 + Math.random() * 15;
-  monsterGroup.position.set(Math.cos(angle)*dist, 0, Math.sin(angle)*dist);
-  monsterGroup.userData = { hp: 3, baseZ: Math.random() * 100, meshBody: bodyMat };
+  monsterGroup.position.set(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
+  monsterGroup.userData = {
+    hp: isFlyer ? 2 : 3,
+    baseZ: Math.random() * 100,
+    meshBody: bodyMat,
+    speed: (isFlyer ? 0.035 : 0.022) + wave * 0.002,
+    hoverY: isFlyer ? 2.2 : 0.2,
+    isFlyer
+  };
 
   scene.add(monsterGroup);
   enemies.push(monsterGroup);
 }
 
+function nextWave() {
+  wave++;
+  document.getElementById('wave').textContent = wave;
+  const extra = Math.min(4, 1 + Math.floor(wave / 2));
+  for (let i = 0; i < extra; i++) spawnDynamicMonster();
+}
+
+// ---------- CONTROLES / VR ----------
 document.getElementById('vrBtn').addEventListener('click', () => {
   if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
     DeviceOrientationEvent.requestPermission().then(() => startVR()).catch(() => startVR());
@@ -291,9 +384,10 @@ function startVR() {
   isVR = true;
   document.getElementById('startOverlay').style.display = 'none';
   document.getElementById('hud').style.display = 'block';
+  document.getElementById('waveHud').style.display = 'block';
 
   const el = document.documentElement;
-  if (el.requestFullscreen) el.requestFullscreen().catch(()=>{});
+  if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
 
   setTimeout(() => updateLayout(), 400);
   animate();
@@ -306,41 +400,95 @@ function triggerAttack() {
   }
 }
 
-// Control por Mando Bluetooth + Avance Táctil
-function updatePlayerMovement() {
-  const moveDir = new THREE.Vector3();
+function flashDamage() {
+  const el = document.getElementById('dmgFlash');
+  el.style.opacity = '1';
+  setTimeout(() => { el.style.opacity = '0'; }, 150);
+  if (navigator.vibrate) navigator.vibrate(40);
+}
 
-  // 1. Movimiento vía Gamepad (Joystick)
-  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+// Direcciones "planas" (sin inclinación) para que moverte no te haga volar al mirar arriba/abajo
+function getFlatDirections() {
+  const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+  euler.setFromQuaternion(camera.quaternion);
+  const yaw = euler.y;
+  const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  return { forward, right };
+}
+
+function updatePlayerMovement() {
+  const { forward, right } = getFlatDirections();
+  const moveDir = new THREE.Vector3();
+  let speedMultiplier = 1;
   let movedWithGamepad = false;
 
-  for (let gp of gamepads) {
+  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const gp of gamepads) {
     if (!gp) continue;
-    const moveX = gp.axes[0] || 0;
-    const moveZ = gp.axes[1] || 0;
+    const strafe = gp.axes[0] || 0;   // izquierda/derecha
+    const forwardBack = gp.axes[1] || 0; // adelante/atrás
 
-    if (Math.abs(moveX) > 0.15 || Math.abs(moveZ) > 0.15) {
-      moveDir.set(moveX, 0, moveZ);
+    if (Math.abs(strafe) > 0.15 || Math.abs(forwardBack) > 0.15) {
+      moveDir.addScaledVector(right, strafe);
+      moveDir.addScaledVector(forward, -forwardBack);
+      speedMultiplier = Math.min(1.6, Math.hypot(strafe, forwardBack) + 0.5);
       movedWithGamepad = true;
     }
-
-    if (gp.buttons.some(b => b.pressed)) {
-      triggerAttack();
-    }
+    if (gp.buttons.some(b => b.pressed)) triggerAttack();
   }
 
-  // 2. Movimiento Táctil (Si no usas mando, avanza hacia donde miras al tocar la pantalla)
   if (!movedWithGamepad && autoMoveForward) {
-    camera.getWorldDirection(moveDir);
-    moveDir.y = 0;
+    moveDir.copy(forward);
   }
 
   if (moveDir.lengthSq() > 0) {
-    moveDir.applyQuaternion(camera.quaternion);
-    moveDir.y = 0;
     moveDir.normalize();
-    camera.position.addScaledVector(moveDir, 0.09);
+    camera.position.addScaledVector(moveDir, WALK_SPEED * speedMultiplier);
+    walkCycle += 0.28 * speedMultiplier;
+    animateWalk();
+  } else {
+    walkCycle = 0;
+    resetLimbs();
   }
+}
+
+function animateWalk() {
+  const swing = Math.sin(walkCycle) * 0.12;
+  if (!isAttacking) {
+    leftHand.position.y = leftHand.userData.rest.y + swing;
+  }
+  legL.rotation.x = swing * 1.5;
+  legR.rotation.x = -swing * 1.5;
+}
+
+function resetLimbs() {
+  if (!isAttacking) leftHand.position.copy(leftHand.userData.rest);
+  legL.rotation.x = 0;
+  legR.rotation.x = 0;
+}
+
+// Ciclo día/noche simple para dar vida al mundo
+function updateDayNightCycle() {
+  const cycle = (globalTime * 0.01) % (Math.PI * 2);
+  const sunHeight = Math.sin(cycle);
+
+  sunLight.intensity = Math.max(0.05, sunHeight * 1.6);
+  sunLight.position.set(Math.cos(cycle) * 60, Math.max(5, sunHeight * 70), 30);
+
+  moonMesh.position.set(-Math.cos(cycle) * 90, Math.max(5, -sunHeight * 60), -60);
+  moonMesh.visible = sunHeight < 0.1;
+
+  const dayColor = new THREE.Color(0x5c94cd);
+  const nightColor = new THREE.Color(0x0a1024);
+  const skyColor = dayColor.clone().lerp(nightColor, THREE.MathUtils.clamp(0.5 - sunHeight * 0.5, 0, 1));
+  scene.background = skyColor;
+  scene.fog.color = skyColor;
+
+  ambientLight.intensity = 0.2 + Math.max(0, sunHeight) * 0.4;
+  hemiLight.intensity = 0.2 + Math.max(0, sunHeight) * 0.5;
+
+  fireflies.forEach(f => { f.material.opacity = sunHeight < 0.2 ? 1 : 0; });
 }
 
 const raycaster = new THREE.Raycaster();
@@ -354,15 +502,22 @@ function animate() {
 
   controls.update();
   updatePlayerMovement();
+  updateDayNightCycle();
+
+  fireflies.forEach(f => {
+    f.position.y = f.userData.base.y + Math.sin(globalTime * 2 + f.userData.phase) * 0.3;
+  });
 
   if (isAttacking) {
     attackTime += 0.25;
     rightHand.position.z = -0.45 - Math.sin(attackTime) * 0.3;
     rightHand.rotation.x = -Math.sin(attackTime) * 0.8;
+    weaponLight.intensity = 0.8 + Math.sin(attackTime * 4) * 0.6;
     if (attackTime >= Math.PI) {
       isAttacking = false;
       rightHand.position.set(0.28, -0.25, -0.45);
       rightHand.rotation.set(0, 0, 0);
+      weaponLight.intensity = 0.8;
     }
   }
 
@@ -371,34 +526,39 @@ function animate() {
   enemies.forEach((enemy, index) => {
     const ePos = enemy.position;
     const distance = ePos.distanceTo(camera.position);
+    const ud = enemy.userData;
 
-    ePos.y = Math.sin(globalTime + enemy.userData.baseZ) * 0.2 + 0.2;
+    ePos.y = ud.hoverY + Math.sin(globalTime + ud.baseZ) * 0.2;
 
     if (distance > 1.3) {
-      const moveDir = new THREE.Vector3().subVectors(camera.position, ePos).normalize();
-      ePos.x += moveDir.x * 0.025;
-      ePos.z += moveDir.z * 0.025;
-      enemy.lookAt(camera.position.x, enemy.position.y, camera.position.z);
+      const moveDir2 = new THREE.Vector3().subVectors(camera.position, ePos);
+      moveDir2.y = 0;
+      moveDir2.normalize();
+      ePos.x += moveDir2.x * ud.speed;
+      ePos.z += moveDir2.z * ud.speed;
+      enemy.lookAt(camera.position.x, ePos.y, camera.position.z);
     } else {
-      playerHp -= 0.15;
+      playerHp -= ud.isFlyer ? 0.1 : 0.15;
       document.getElementById('hp').textContent = Math.max(0, Math.floor(playerHp));
+      flashDamage();
     }
 
     const hitEnemies = raycaster.intersectObjects(enemy.children);
     if (hitEnemies.length > 0 && isAttacking) {
-      enemy.userData.hp -= 1;
-      enemy.userData.meshBody.color.setHex(0xffffff);
-      setTimeout(() => enemy.userData.meshBody.color.setHex(0xb71c1c), 100);
+      ud.hp -= 1;
+      ud.meshBody.color.setHex(0xffffff);
+      setTimeout(() => ud.meshBody.color.setHex(ud.isFlyer ? 0x6a1fb3 : 0xb71c1c), 100);
 
       enemy.position.x += dir.x * 0.7;
       enemy.position.z += dir.z * 0.7;
 
-      if (enemy.userData.hp <= 0) {
+      if (ud.hp <= 0) {
         scene.remove(enemy);
         enemies.splice(index, 1);
         score++;
         document.getElementById('score').textContent = score;
         spawnDynamicMonster();
+        if (score % 8 === 0) nextWave();
       }
     }
   });
